@@ -1,1 +1,1 @@
-# Parallel_NNC-
+# Parallelization of Neural Networks using OpenMP
