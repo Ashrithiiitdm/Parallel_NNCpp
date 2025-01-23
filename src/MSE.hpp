@@ -1,3 +1,4 @@
+#pragma once
 #include<vector>
 
 class MSE{
@@ -32,13 +33,14 @@ class MSE{
         }
 
 
-        double backward(double grad){
+        void backward(double grad){
             this->grad = std:: vector<double>(this->last_input.size());
-
-            for(int i = 0; i < this->last_input.size(); i++){
+            int n = this->last_input.size();
+            for(int i = 0; i < n; i++){
                 this->grad.at(i) = 2 * (this->last_input.at(i) - this->last_target.at(i)) / this->last_input.size();
                 this->grad.at(i) *= grad;
             }
+
         }
 
 };

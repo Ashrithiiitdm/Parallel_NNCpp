@@ -1,6 +1,7 @@
+#pragma once
 #include<vector>
 #include<memory>
-#include "Neuron.cpp"
+#include "Neuron.hpp"
 
 class Layer{
     public:

@@ -1,7 +1,8 @@
+#pragma once
 #include<iostream>
 #include<vector>
 #include<cmath>
-#include "Layer.cpp"
+#include "Layer.hpp"
 
 class Sigmoid{
     public:
@@ -22,7 +23,7 @@ class Sigmoid{
             this->last_input = inputs;
             std:: vector<double> outputs = std:: vector<double>(inputs.size());
 
-            for(int i = 0; i < inputs.size(); i++){
+            for(size_t i = 0; i < inputs.size(); i++){
                 outputs[i] = 1 / (1 + exp(-inputs[i]));
             }
 
@@ -33,7 +34,7 @@ class Sigmoid{
         void backward(std:: vector<double> chain_grad){
             this->grad = std:: vector<double>(this->last_input.size());
 
-            for(int i = 0; i < this->last_input.size(); i++){
+            for(size_t i = 0; i < this->last_input.size(); i++){
                 this->grad.at(i) = this->last_output.at(i) * (1 - this->last_output.at(i)) * chain_grad.at(i);
             }
         }
@@ -41,10 +42,10 @@ class Sigmoid{
         void backward(Layer &prevlayer){
             this->grad = std:: vector<double>(this->last_input.size());
 
-            for(int i = 0; i < this->last_input.size(); i++){
+            for(size_t i = 0; i < this->last_input.size(); i++){
                 double sum = 0;
 
-                for(int j = 0; j < prevlayer.neurons.size(); j++){
+                for(size_t j = 0; j < prevlayer.neurons.size(); j++){
                     sum += prevlayer.neurons[j].weights[i] * prevlayer.neurons[j].wgrad[i];
                 }
 

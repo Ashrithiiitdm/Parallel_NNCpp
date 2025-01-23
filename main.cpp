@@ -3,10 +3,12 @@
 #include<vector>
 #include<iomanip>
 #include<cmath>
-#include "src/Neuron.cpp"
-#include "src/Layer.cpp"
-#include "src/MSE.cpp"
-#include "src/Sigmoid.cpp"
+#include "src/Neuron.hpp"
+#include "src/MSE.hpp"
+#include "src/Layer.hpp"
+#include "src/Sigmoid.hpp"
+
+
 using namespace std;
 
 void reverse_bytes(char *bytes, int size){
@@ -184,7 +186,7 @@ bool load_data(vector<vector<double>> *train_images, vector<int> *train_labels, 
 double accuracy(vector<int> predictions, vector<int>labels){
 
     int correct = 0;
-    for(int i = 0; i < predictions.size(); i++){
+    for(size_t i = 0; i < predictions.size(); i++){
         if(predictions[i] == labels[i]){
             correct++;
         }
@@ -226,10 +228,10 @@ int main(void){
         double learning_rate = 0.1;
         double mean_loss = 0.0;
 
-        int i = 0;
+        size_t i = 0;
         vector<int> predictions;
 
-        for(i; i < train_images.size(); i++){
+        for(; i < train_images.size(); i++){
             int idx = i;
             vector<double> image = train_images[idx];
             int label = train_labels[idx];
@@ -243,7 +245,7 @@ int main(void){
             target[label] = 1.0;
 
             int prediction = 0;
-            for(int j = 0; j < s2_output.size(); j++){
+            for(size_t j = 0; j < s2_output.size(); j++){
                 if(s2_output[j] > s2_output[prediction]){
                     prediction = j;
                 }
@@ -256,7 +258,7 @@ int main(void){
 
             mean_loss += loss_value;
             if(i % 500 == 0){
-                cout << setprecision(4) << "Epoch: " << epoch << " | Mean loss: " << mean_loss / (i + 1) << "\r" << flush;
+                cout << setprecision(4) << "Epoch: " << epoch + 1 << " | Mean loss: " << mean_loss / (i + 1) << "\r" << flush;
             }
 
             //Backpropagation
@@ -282,7 +284,7 @@ int main(void){
         double acc = accuracy(predictions, train_labels);
 
         cout << "                                      \r" 
-            << "Epoch: " << epoch << " | Loss: " << mean_loss / i << " | Training accuracy: " << acc << endl;
+            << "Epoch: " << epoch + 1 << " | Loss: " << mean_loss / i << " | Training accuracy: " << acc * 100 << endl;
     }
 
 
@@ -290,10 +292,10 @@ int main(void){
 
     vector<int> predictions;
 
-    for(int i = 0; i < test_images.size(); i++){
+    for(size_t i = 0; i < test_images.size(); i++){
         int idx = i;
         vector<double> image = test_images[idx];
-        int label = test_labels[idx];
+        //int label = test_labels[idx];
 
         //Feed forward
         vector<double> l1_output = l1.feed_forward(image);
@@ -303,7 +305,8 @@ int main(void){
 
         //Prediction is the index of the maximum value in the output
         int prediction = 0;
-        for(int j = 0; j < s2_output.size(); j++){
+        
+        for(size_t j = 0; j < s2_output.size(); j++){
             if(s2_output[j] > s2_output[prediction]){
                 prediction = j;
             }
@@ -313,7 +316,7 @@ int main(void){
     }
 
     double acc = accuracy(predictions, test_labels);
-    cout << "Test accuracy: " << acc << endl;
+    cout << "Test accuracy: " << acc * 100  << endl;
 
     return 0;
 }

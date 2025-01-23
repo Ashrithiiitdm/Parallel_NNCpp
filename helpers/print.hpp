@@ -1,7 +1,8 @@
+#pragma once
 #include <iostream>
 #include <vector>
 
-void print_vector(std::vector<double> v){
+inline void print_vector(std::vector<double> v){
     std::cout << "[";
     int n = v.size();
 
