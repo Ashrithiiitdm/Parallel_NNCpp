@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Werror -pedantic -O3
+CXXFLAGS = -std=c++11 -Wall -Werror -pedantic -O3 -pg
 TARGET = nn
 
 # Match .cpp files recursively in src and helpers directories
