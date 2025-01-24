@@ -1,0 +1,12 @@
+        -:    0:Source:helpers/random.hpp
+        -:    0:Graph:main.gcno
+        -:    0:Data:main.gcda
+        -:    0:Runs:1
+        -:    1:#pragma once
+        -:    2:#include<iostream>
+        -:    3:
+function _Z10get_randomv called 79510 returned 100% blocks executed 100%
+    79510:    4:double get_random(){
+    79510:    5:    return (rand() / (double)RAND_MAX) * 2 - 1;
+call    0 returned 79510
+        -:    6:}

@@ -1,0 +1,98 @@
+        -:    0:Source:src/Sigmoid.hpp
+        -:    0:Graph:main.gcno
+        -:    0:Data:main.gcda
+        -:    0:Runs:1
+        -:    1:#pragma once
+        -:    2:#include<iostream>
+        -:    3:#include<vector>
+        -:    4:#include<cmath>
+        -:    5:#include "Layer.hpp"
+        -:    6:
+        -:    7:class Sigmoid{
+        -:    8:    public:
+        -:    9:
+function _ZN7SigmoidC2Ev called 2 returned 100% blocks executed 100%
+        2:   10:        Sigmoid(){
+call    0 returned 2
+call    1 returned 2
+call    2 returned 2
+        -:   11:
+        2:   12:        }
+        -:   13:
+function _ZN7SigmoidD2Ev called 2 returned 100% blocks executed 100%
+        2:   14:        ~Sigmoid(){
+        -:   15:
+        2:   16:        }
+call    0 returned 2
+call    1 returned 2
+call    2 returned 2
+        -:   17:        
+        -:   18:        std::vector<double> last_input;
+        -:   19:        std::vector<double> grad;
+        -:   20:        std::vector<double> last_output;
+        -:   21:
+function _ZN7Sigmoid12feed_forwardERKSt6vectorIdSaIdEE called 620000 returned 100% blocks executed 89%
+   620000:   22:        std:: vector<double> feed_forward(const std:: vector<double> &inputs){
+   620000:   23:            this->last_input = inputs;
+call    0 returned 620000
+   620000:   24:            std:: vector<double> outputs = std:: vector<double>(inputs.size());
+call    0 returned 620000
+        -:   25:
+ 34720000:   26:            for(size_t i = 0; i < inputs.size(); i++){
+branch  0 taken 34100000
+branch  1 taken 620000 (fallthrough)
+ 34100000:   27:                outputs[i] = 1 / (1 + exp(-inputs[i]));
+        -:   28:            }
+        -:   29:
+   620000:   30:            this->last_output = outputs;
+call    0 returned 620000
+branch  1 taken 620000 (fallthrough)
+branch  2 taken 0 (throw)
+   620000:   31:            return outputs;
+    =====:   32:        }
+call    0 never executed
+        -:   33:
+function _ZN7Sigmoid8backwardESt6vectorIdSaIdEE called 300000 returned 100% blocks executed 100%
+   300000:   34:        void backward(std:: vector<double> chain_grad){
+   300000:   35:            this->grad = std:: vector<double>(this->last_input.size());
+call    0 returned 300000
+call    1 returned 300000
+call    2 returned 300000
+        -:   36:
+  3300000:   37:            for(size_t i = 0; i < this->last_input.size(); i++){
+branch  0 taken 3000000
+branch  1 taken 300000 (fallthrough)
+  3000000:   38:                this->grad.at(i) = this->last_output.at(i) * (1 - this->last_output.at(i)) * chain_grad.at(i);
+call    0 returned 3000000
+call    1 returned 3000000
+call    2 returned 3000000
+call    3 returned 3000000
+        -:   39:            }
+   300000:   40:        }
+        -:   41:
+function _ZN7Sigmoid8backwardER5Layer called 300000 returned 100% blocks executed 100%
+   300000:   42:        void backward(Layer &prevlayer){
+   300000:   43:            this->grad = std:: vector<double>(this->last_input.size());
+call    0 returned 300000
+call    1 returned 300000
+call    2 returned 300000
+        -:   44:
+ 30300000:   45:            for(size_t i = 0; i < this->last_input.size(); i++){
+branch  0 taken 30000000
+branch  1 taken 300000 (fallthrough)
+        -:   46:                double sum = 0;
+        -:   47:
+330000000:   48:                for(size_t j = 0; j < prevlayer.neurons.size(); j++){
+branch  0 taken 300000000
+branch  1 taken 30000000 (fallthrough)
+300000000:   49:                    sum += prevlayer.neurons[j].weights[i] * prevlayer.neurons[j].wgrad[i];
+        -:   50:                }
+        -:   51:
+ 30000000:   52:                this->grad.at(i) = this->last_output.at(i) * (1 - this->last_output.at(i)) * sum;
+call    0 returned 30000000
+call    1 returned 30000000
+call    2 returned 30000000
+        -:   53:            }
+   300000:   54:        }
+        -:   55:
+        -:   56:};

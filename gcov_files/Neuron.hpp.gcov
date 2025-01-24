@@ -1,0 +1,117 @@
+        -:    0:Source:src/Neuron.hpp
+        -:    0:Graph:main.gcno
+        -:    0:Data:main.gcda
+        -:    0:Runs:1
+        -:    1:#pragma once
+        -:    2:#include <vector>
+        -:    3:#include <iostream>
+        -:    4:#include "../helpers/random.hpp"
+        -:    5:
+        -:    6:class Neuron {
+        -:    7:    public:
+        -:    8:        std::vector<double> weights;
+        -:    9:        std::vector<double> wgrad;
+        -:   10:        double bias, bgrad;
+        -:   11:
+        -:   12:        // Regular constructor
+function _ZN6NeuronC2Ei called 110 returned 100% blocks executed 100%
+      110:   13:        Neuron(int input_size) 
+      110:   14:            : weights(input_size, 0.0),  // Initialize weights with 0.0 by default
+call    0 returned 110
+      110:   15:              bgrad(0.0)  // Initialize bgrad to 0.0
+call    0 returned 110
+        -:   16:        {
+      110:   17:            this->bias = 0.01 * get_random();
+call    0 returned 110
+        -:   18:
+    79510:   19:            for (int i = 0; i < input_size; i++) {
+branch  0 taken 79400
+branch  1 taken 110 (fallthrough)
+    79400:   20:                this->weights[i] = get_random();
+call    0 returned 79400
+        -:   21:            }
+      110:   22:        }
+        -:   23:
+        -:   24:        // Copy constructor
+        -:   25:        Neuron(const Neuron &other)
+        -:   26:            : weights(other.weights),
+        -:   27:              wgrad(other.wgrad),
+        -:   28:              bias(other.bias),
+        -:   29:              bgrad(other.bgrad)
+        -:   30:        {
+        -:   31:            // No need to manually reset bgrad because it's copied
+        -:   32:        }
+        -:   33:
+        -:   34:        // Move constructor
+function _ZN6NeuronC2EOS_ called 252 returned 100% blocks executed 100%
+      252:   35:        Neuron(Neuron &&other) noexcept
+      252:   36:            : weights(std::move(other.weights)), 
+call    0 returned 252
+      252:   37:              wgrad(std::move(other.wgrad)),
+call    0 returned 252
+      252:   38:              bias(other.bias),
+      252:   39:              bgrad(other.bgrad)  
+        -:   40:        {
+      252:   41:            other.bgrad = 0.0;  // Optionally reset the bgrad of the moved-from object
+      252:   42:        }
+        -:   43:
+function _ZN6NeuronD2Ev called 362 returned 100% blocks executed 100%
+      362:   44:        ~Neuron() {
+        -:   45:            // Destructor
+      362:   46:        }
+call    0 returned 362
+call    1 returned 362
+        -:   47:
+function _ZN6Neuron9zero_gradEv called 33000000 returned 100% blocks executed 100%
+ 33000000:   48:        void zero_grad() {
+ 33000000:   49:            this->wgrad = std::vector<double>(this->weights.size(), 0.0);  // Initialize wgrad with zeros
+call    0 returned 33000000
+call    1 returned 33000000
+call    2 returned 33000000
+ 33000000:   50:            this->bgrad = 0.0;
+ 33000000:   51:        }
+        -:   52:
+function _ZN6Neuron12feed_forwardESt6vectorIdSaIdEE called 34100000 returned 100% blocks executed 100%
+ 34100000:   53:        double feed_forward(std::vector<double> inputs) {
+ 34100000:   54:            double sum = this->bias;
+ 34100000:   55:            int n = inputs.size();
+        -:   56:
+24648100000:   57:            for (int i = 0; i < n; i++) {
+branch  0 taken 24614000000
+branch  1 taken 34100000 (fallthrough)
+24614000000:   58:                sum += inputs[i] * this->weights[i];
+        -:   59:            }
+        -:   60:
+ 34100000:   61:            return sum;
+        -:   62:        }
+        -:   63:
+function _ZN6Neuron15backpropagationESt6vectorIdSaIdEEd called 33000000 returned 100% blocks executed 100%
+ 33000000:   64:        void backpropagation(std::vector<double> last_input, double grad) {
+ 33000000:   65:            this->bgrad += grad;
+        -:   66:
+ 33000000:   67:            int n = wgrad.size();
+        -:   68:
+23853000000:   69:            for (int i = 0; i < n; i++) {
+branch  0 taken 23820000000
+branch  1 taken 33000000 (fallthrough)
+23820000000:   70:                this->wgrad.at(i) += grad * last_input.at(i);
+call    0 returned 23820000000
+call    1 returned 23820000000
+        -:   71:            }
+ 33000000:   72:        }
+        -:   73:
+function _ZN6Neuron7descendEd called 33000000 returned 100% blocks executed 100%
+ 33000000:   74:        void descend(double learning_rate) {
+ 33000000:   75:            this->bias -= learning_rate * this->bgrad;
+        -:   76:
+ 33000000:   77:            int n = this->weights.size();
+        -:   78:
+23853000000:   79:            for (int i = 0; i < n; i++) {
+branch  0 taken 23820000000
+branch  1 taken 33000000 (fallthrough)
+23820000000:   80:                this->weights.at(i) -= learning_rate * this->wgrad.at(i);
+call    0 returned 23820000000
+call    1 returned 23820000000
+        -:   81:            }
+ 33000000:   82:        }
+        -:   83:};

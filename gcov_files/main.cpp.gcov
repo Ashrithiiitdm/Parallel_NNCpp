@@ -1,0 +1,807 @@
+        -:    0:Source:main.cpp
+        -:    0:Graph:main.gcno
+        -:    0:Data:main.gcda
+        -:    0:Runs:1
+        -:    1:#include<iostream>
+        -:    2:#include<fstream>
+        -:    3:#include<vector>
+        -:    4:#include<iomanip>
+        -:    5:#include<cmath>
+        -:    6:#include "src/Neuron.hpp"
+        -:    7:#include "src/MSE.hpp"
+        -:    8:#include "src/Layer.hpp"
+        -:    9:#include "src/Sigmoid.hpp"
+        -:   10:
+        -:   11:
+        -:   12:using namespace std;
+        -:   13:
+function _Z13reverse_bytesPci called 12 returned 100% blocks executed 100%
+       12:   14:void reverse_bytes(char *bytes, int size){
+        -:   15:
+       36:   16:    for(int i = 0; i < size / 2; i++){
+branch  0 taken 24
+branch  1 taken 12 (fallthrough)
+       24:   17:        char temp = bytes[i];
+       24:   18:        bytes[i] = bytes[size - i - 1];
+       24:   19:        bytes[size - i - 1] = temp;
+        -:   20:    }
+       12:   21:}
+        -:   22:
+        -:   23:
+function _Z9load_dataPSt6vectorIS_IdSaIdEESaIS1_EEPS_IiSaIiEES4_S7_ called 1 returned 100% blocks executed 88%
+        1:   24:bool load_data(vector<vector<double>> *train_images, vector<int> *train_labels, vector<vector<double>> *test_images, vector<int> *test_labels){
+        -:   25:
+        -:   26:    //train-labels-idex1-ubyte
+        1:   27:    ifstream file_labels;
+call    0 returned 1
+        1:   28:    file_labels.open("dataset/train-labels.idx1-ubyte", ios:: binary | ios:: in);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   29:
+        1:   30:    if(!file_labels.is_open()){
+branch  0 taken 1 (fallthrough)
+branch  1 taken 0
+        -:   31:        return false;
+        -:   32:    }
+        -:   33:
+        -:   34:    //seek start of the file.
+        1:   35:    file_labels.seekg(0, ios::beg);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   36:
+        -:   37:    //First 32 bits are magic number and 32 bits are no of items.
+        -:   38:    
+        -:   39:    int magic_number;
+        1:   40:    file_labels.read((char *)&magic_number, sizeof(magic_number));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:   41:    reverse_bytes((char *)&magic_number, sizeof(magic_number));
+call    0 returned 1
+        -:   42:
+        -:   43:    int no_of_items;
+        1:   44:    file_labels.read((char *)&no_of_items, sizeof(no_of_items));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:   45:    reverse_bytes((char *)&no_of_items, sizeof(no_of_items));
+call    0 returned 1
+        -:   46:
+        -:   47:    //Read the labels.
+        -:   48:
+    60001:   49:    for(int i = 0; i < no_of_items; i++){
+branch  0 taken 60000
+branch  1 taken 1 (fallthrough)
+        -:   50:
+        -:   51:        //Each label is 1 byte so we use char
+        -:   52:        char label;
+    60000:   53:        file_labels.read(&label, sizeof(label));
+call    0 returned 60000
+branch  1 taken 60000 (fallthrough)
+branch  2 taken 0 (throw)
+    60000:   54:        train_labels->push_back((int)label);
+call    0 returned 60000
+branch  1 taken 60000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   55:    }
+        -:   56:
+        1:   57:    file_labels.close();
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   58:
+        1:   59:    ifstream images;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:   60:    images.open("dataset/train-images.idx3-ubyte", ios::binary | ios::in);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   61:
+        1:   62:    if(!images.is_open()){
+branch  0 taken 1 (fallthrough)
+branch  1 taken 0
+        -:   63:        return false;
+        -:   64:    }
+        -:   65:
+        -:   66:    //seek to beginning
+        1:   67:    images.seekg(0, ios::beg);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:   68:
+        -:   69:    //First 32 - magic number
+        -:   70:    //Next 32 - no of images
+        -:   71:    //Next 32 - no of rows
+        -:   72:    //Next 32 - no of columns
+        -:   73:
+        -:   74:    //read magic number
+        -:   75:    int magic_number_images;
+        1:   76:    images.read((char *)&magic_number_images, sizeof(magic_number_images));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:   77:    reverse_bytes((char *)&magic_number_images, sizeof(magic_number_images));
+call    0 returned 1
+        -:   78:
+        -:   79:    //read no of images
+        -:   80:    int no_of_images;
+        1:   81:    images.read((char *)&no_of_images, sizeof(no_of_images));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:   82:    reverse_bytes((char *)&no_of_images, sizeof(no_of_images));
+call    0 returned 1
+        -:   83:
+        -:   84:    //read no of rows
+        -:   85:    int no_of_rows;
+        1:   86:    images.read((char *)&no_of_rows, sizeof(no_of_rows));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:   87:    reverse_bytes((char *)&no_of_rows, sizeof(no_of_rows));
+call    0 returned 1
+        -:   88:
+        -:   89:    //read no of columns
+        -:   90:    int no_of_columns;
+        1:   91:    images.read((char *)&no_of_columns, sizeof(no_of_columns));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:   92:    reverse_bytes((char *)&no_of_columns, sizeof(no_of_columns));
+call    0 returned 1
+        -:   93:
+        -:   94:    //read train_images
+    60001:   95:    for(int i = 0; i < no_of_images; i++){
+branch  0 taken 60000
+branch  1 taken 1 (fallthrough)
+        -:   96:
+        -:   97:        //each image is 28 * 28 = 784 bytes
+        -:   98:        char image[784];
+    60000:   99:        images.read(image, 784);
+call    0 returned 60000
+branch  1 taken 60000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  100:
+    60000:  101:        vector<double> image_vector(784);
+call    0 returned 60000
+branch  1 taken 60000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  102:
+ 47100000:  103:        for(int j = 0; j < 784; j++){
+branch  0 taken 47040000
+branch  1 taken 60000 (fallthrough)
+ 47040000:  104:            unsigned int temp = (unsigned int)(unsigned char)image[j];
+        -:  105:
+        -:  106:            //Normalize the pixel values to 0-1
+ 47040000:  107:            image_vector[j] = (double)temp / 255.0;
+        -:  108:        }
+        -:  109:
+    60000:  110:        train_images->push_back(image_vector);
+call    0 returned 60000
+branch  1 taken 60000 (fallthrough)
+branch  2 taken 0 (throw)
+    60000:  111:    }
+call    0 returned 60000
+call    1 never executed
+        -:  112:
+        1:  113:    images.close();
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  114:
+        -:  115:    //Load test labels
+        1:  116:    ifstream test_labels_file;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  117:    test_labels_file.open("dataset/t10k-labels.idx1-ubyte", ios::binary | ios::in);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  118:    if(!test_labels_file.is_open()){
+branch  0 taken 1 (fallthrough)
+branch  1 taken 0
+        -:  119:        return false;
+        -:  120:    }
+        -:  121:
+        1:  122:    test_labels_file.seekg(0, ios::beg);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  123:
+        -:  124:    int test_magic_number;
+        1:  125:    test_labels_file.read((char *)&test_magic_number, sizeof(test_magic_number));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  126:    reverse_bytes((char *)&test_magic_number, sizeof(test_magic_number));
+call    0 returned 1
+        -:  127:
+        -:  128:    int test_no_of_items;
+        1:  129:    test_labels_file.read((char *)&test_no_of_items, sizeof(test_no_of_items));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  130:    reverse_bytes((char *)&test_no_of_items, sizeof(test_no_of_items));
+call    0 returned 1
+        -:  131:
+    10001:  132:    for(int i = 0; i < test_no_of_items; i++){
+branch  0 taken 10000
+branch  1 taken 1 (fallthrough)
+        -:  133:
+        -:  134:        char label;
+    10000:  135:        test_labels_file.read(&label, sizeof(label));
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+    10000:  136:        test_labels->push_back((int)label);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  137:    }
+        -:  138:
+        1:  139:    test_labels_file.close();
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  140:
+        -:  141:    //Load test_images
+        -:  142:
+        1:  143:    ifstream test_images_file;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  144:    test_images_file.open("dataset/t10k-images.idx3-ubyte", ios::binary | ios::in);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  145:    if(!test_images_file.is_open()){
+branch  0 taken 1 (fallthrough)
+branch  1 taken 0
+        -:  146:        return false;
+        -:  147:    }
+        -:  148:
+        1:  149:    test_images_file.seekg(0, ios::beg);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  150:
+        -:  151:    int test_magic_number_images;
+        1:  152:    test_images_file.read((char *)&test_magic_number_images, sizeof(test_magic_number_images));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  153:    reverse_bytes((char *)&test_magic_number_images, sizeof(test_magic_number_images));
+call    0 returned 1
+        -:  154:
+        -:  155:    int test_no_of_images;
+        1:  156:    test_images_file.read((char *)&test_no_of_images, sizeof(test_no_of_images));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  157:    reverse_bytes((char *)&test_no_of_images, sizeof(test_no_of_images));
+call    0 returned 1
+        -:  158:
+        -:  159:    int test_no_of_rows;
+        1:  160:    test_images_file.read((char *)&test_no_of_rows, sizeof(test_no_of_rows));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  161:    reverse_bytes((char *)&test_no_of_rows, sizeof(test_no_of_rows));
+call    0 returned 1
+        -:  162:
+        -:  163:    int test_no_of_columns;
+        1:  164:    test_images_file.read((char *)&test_no_of_columns, sizeof(test_no_of_columns));
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  165:    reverse_bytes((char *)&test_no_of_columns, sizeof(test_no_of_columns));
+call    0 returned 1
+        -:  166:
+    10001:  167:    for(int i = 0; i < test_no_of_images; i++){
+branch  0 taken 10000
+branch  1 taken 1 (fallthrough)
+        -:  168:        char image[784];
+    10000:  169:        test_images_file.read(image, 784);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  170:
+    10000:  171:        vector<double> image_vector(784);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  172:
+  7850000:  173:        for(int j = 0; j < 784; j++){
+branch  0 taken 7840000
+branch  1 taken 10000 (fallthrough)
+  7840000:  174:            unsigned int temp = (unsigned int)(unsigned char)image[j];
+  7840000:  175:            image_vector[j] = (double)temp / 255.0;
+        -:  176:        }
+        -:  177:
+    10000:  178:        test_images->push_back(image_vector);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+    10000:  179:    }
+call    0 returned 10000
+call    1 never executed
+        -:  180:
+        1:  181:    test_images_file.close();
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  182:
+        -:  183:    return true;
+        1:  184:}
+call    0 returned 1
+call    1 returned 1
+call    2 returned 1
+call    3 returned 1
+call    4 never executed
+call    5 never executed
+call    6 never executed
+call    7 never executed
+        -:  185:
+function _Z8accuracySt6vectorIiSaIiEES1_ called 6 returned 100% blocks executed 100%
+        6:  186:double accuracy(vector<int> predictions, vector<int>labels){
+        -:  187:
+        -:  188:    int correct = 0;
+   310006:  189:    for(size_t i = 0; i < predictions.size(); i++){
+branch  0 taken 310000
+branch  1 taken 6 (fallthrough)
+   310000:  190:        if(predictions[i] == labels[i]){
+branch  0 taken 261301 (fallthrough)
+branch  1 taken 48699
+   261301:  191:            correct++;
+        -:  192:        }
+        -:  193:    }
+        -:  194:
+        6:  195:    return (double)correct / (double)predictions.size();
+        -:  196:}
+        -:  197:
+function main called 1 returned 100% blocks executed 68%
+        1:  198:int main(void){
+        -:  199:
+        1:  200:    srand(time(0));
+call    0 returned 1
+call    1 returned 1
+        -:  201:
+        1:  202:    vector<vector<double>> train_images;
+call    0 returned 1
+        1:  203:    vector<int> train_labels;
+call    0 returned 1
+        -:  204:
+        1:  205:    vector<vector<double>> test_images;
+call    0 returned 1
+        1:  206:    vector<int> test_labels;
+call    0 returned 1
+        -:  207:
+        1:  208:    bool flag = load_data(&train_images, &train_labels, &test_images, &test_labels);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  209:
+        1:  210:    if(!flag){
+branch  0 taken 0 (fallthrough)
+branch  1 taken 1
+    #####:  211:        cout << "Error loading data" << endl;
+call    0 never executed
+branch  1 never executed (fallthrough)
+branch  2 never executed (throw)
+call    3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed (throw)
+        -:  212:        return 1;
+        -:  213:    }
+        -:  214:    
+        1:  215:    cout << "Data loaded successfully" << endl;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+        1:  216:    cout << "Training images: " << train_images.size() << endl;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 1
+branch  7 taken 1 (fallthrough)
+branch  8 taken 0 (throw)
+        1:  217:    cout << "Training labels: " << train_labels.size() << endl;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 1
+branch  7 taken 1 (fallthrough)
+branch  8 taken 0 (throw)
+        1:  218:    cout << "Test images: " << test_images.size() << endl;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 1
+branch  7 taken 1 (fallthrough)
+branch  8 taken 0 (throw)
+        1:  219:    cout << "Test labels: " << test_labels.size() << endl;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 1
+branch  7 taken 1 (fallthrough)
+branch  8 taken 0 (throw)
+        -:  220:
+        1:  221:    Layer l1 = Layer(784, 100);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  222:    Sigmoid s1 = Sigmoid();
+call    0 returned 1
+        1:  223:    Layer l2 = Layer(100, 10);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+        1:  224:    Sigmoid s2 = Sigmoid();
+call    0 returned 1
+        -:  225:
+        -:  226:
+        6:  227:    for(int epoch = 0; epoch < 5; epoch++){
+branch  0 taken 5
+branch  1 taken 1 (fallthrough)
+        -:  228:        double learning_rate = 0.1;
+        -:  229:        double mean_loss = 0.0;
+        -:  230:
+        -:  231:        size_t i = 0;
+        5:  232:        vector<int> predictions;
+call    0 returned 5
+        -:  233:
+   300005:  234:        for(; i < train_images.size(); i++){
+branch  0 taken 300000
+branch  1 taken 5 (fallthrough)
+   300000:  235:            int idx = i;
+   300000:  236:            vector<double> image = train_images[idx];
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+   300000:  237:            int label = train_labels[idx];
+        -:  238:
+   300000:  239:            vector<double> l1_output = l1.feed_forward(image);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 300000
+branch  4 taken 300000 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 300000
+call    7 never executed
+   300000:  240:            vector<double> s1_output = s1.feed_forward(l1_output);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+   300000:  241:            vector<double> l2_output = l2.feed_forward(s1_output);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 300000
+branch  4 taken 300000 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 300000
+call    7 never executed
+   300000:  242:            vector<double> s2_output = s2.feed_forward(l2_output);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  243:
+   300000:  244:            vector<double> target(10, 0.0);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+   300000:  245:            target[label] = 1.0;
+        -:  246:
+   300000:  247:            int prediction = 0;
+  3300000:  248:            for(size_t j = 0; j < s2_output.size(); j++){
+branch  0 taken 3000000
+branch  1 taken 300000 (fallthrough)
+  3000000:  249:                if(s2_output[j] > s2_output[prediction]){
+branch  0 taken 615372 (fallthrough)
+branch  1 taken 2384628
+   615372:  250:                    prediction = j;
+        -:  251:                }
+        -:  252:            }
+        -:  253:
+   300000:  254:            predictions.push_back(prediction);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  255:
+   300000:  256:            MSE loss = MSE();
+call    0 returned 300000
+   300000:  257:            double loss_value = loss.feed_forward(s2_output, target);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 300000
+branch  4 taken 300000 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 300000
+branch  7 taken 300000 (fallthrough)
+branch  8 taken 0 (throw)
+call    9 returned 300000
+call   10 returned 300000
+call   11 never executed
+call   12 never executed
+        -:  258:
+   300000:  259:            mean_loss += loss_value;
+   300000:  260:            if(i % 500 == 0){
+branch  0 taken 600 (fallthrough)
+branch  1 taken 299400
+      600:  261:                cout << setprecision(4) << "Epoch: " << epoch + 1 << " | Mean loss: " << mean_loss / (i + 1) << "\r" << flush;
+call    0 returned 600
+call    1 returned 600
+branch  2 taken 600 (fallthrough)
+branch  3 taken 0 (throw)
+call    4 returned 600
+branch  5 taken 600 (fallthrough)
+branch  6 taken 0 (throw)
+call    7 returned 600
+branch  8 taken 600 (fallthrough)
+branch  9 taken 0 (throw)
+call   10 returned 600
+branch 11 taken 600 (fallthrough)
+branch 12 taken 0 (throw)
+call   13 returned 600
+branch 14 taken 600 (fallthrough)
+branch 15 taken 0 (throw)
+call   16 returned 600
+branch 17 taken 600 (fallthrough)
+branch 18 taken 0 (throw)
+        -:  262:            }
+        -:  263:
+        -:  264:            //Backpropagation
+        -:  265:
+        -:  266:            //Zero grad for every layer
+   300000:  267:            l1.zero_grad();
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+   300000:  268:            l2.zero_grad();
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  269:
+   300000:  270:            loss.backward(1.0);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  271:
+        -:  272:            //Backward pass
+   300000:  273:            s2.backward(loss.grad);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 300000
+branch  4 taken 300000 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 300000
+call    7 never executed
+   300000:  274:            l2.backward(s2.grad);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 300000
+branch  4 taken 300000 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 300000
+call    7 never executed
+   300000:  275:            s1.backward(l2);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+   300000:  276:            l1.backward(s1.grad);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 300000
+branch  4 taken 300000 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 300000
+call    7 never executed
+        -:  277:
+        -:  278:            //Update weights
+   300000:  279:            l1.descend(learning_rate);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+   300000:  280:            l2.descend(learning_rate);
+call    0 returned 300000
+branch  1 taken 300000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  281:
+   300000:  282:        }
+call    0 returned 300000
+call    1 returned 300000
+call    2 returned 300000
+call    3 returned 300000
+call    4 returned 300000
+call    5 returned 300000
+call    6 returned 300000
+call    7 never executed
+call    8 never executed
+call    9 never executed
+call   10 never executed
+call   11 never executed
+call   12 never executed
+call   13 never executed
+        -:  283:
+        5:  284:        double acc = accuracy(predictions, train_labels);
+call    0 returned 5
+branch  1 taken 5 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 5
+branch  4 taken 5 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 5
+call    7 returned 5
+call    8 never executed
+        -:  285:
+        -:  286:        cout << "                                      \r" 
+        5:  287:            << "Epoch: " << epoch + 1 << " | Loss: " << mean_loss / i << " | Training accuracy: " << acc * 100 << endl;
+call    0 returned 5
+branch  1 taken 5 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 5
+branch  4 taken 5 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 5
+branch  7 taken 5 (fallthrough)
+branch  8 taken 0 (throw)
+call    9 returned 5
+branch 10 taken 5 (fallthrough)
+branch 11 taken 0 (throw)
+call   12 returned 5
+branch 13 taken 5 (fallthrough)
+branch 14 taken 0 (throw)
+call   15 returned 5
+branch 16 taken 5 (fallthrough)
+branch 17 taken 0 (throw)
+call   18 returned 5
+branch 19 taken 5 (fallthrough)
+branch 20 taken 0 (throw)
+call   21 returned 5
+branch 22 taken 5 (fallthrough)
+branch 23 taken 0 (throw)
+        5:  288:    }
+call    0 returned 5
+call    1 never executed
+        -:  289:
+        -:  290:
+        -:  291:    //Test the model
+        -:  292:
+        1:  293:    vector<int> predictions;
+call    0 returned 1
+        -:  294:
+    10001:  295:    for(size_t i = 0; i < test_images.size(); i++){
+branch  0 taken 10000
+branch  1 taken 1 (fallthrough)
+    10000:  296:        int idx = i;
+    10000:  297:        vector<double> image = test_images[idx];
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  298:        //int label = test_labels[idx];
+        -:  299:
+        -:  300:        //Feed forward
+    10000:  301:        vector<double> l1_output = l1.feed_forward(image);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 10000
+branch  4 taken 10000 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 10000
+call    7 never executed
+    10000:  302:        vector<double> s1_output = s1.feed_forward(l1_output);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+    10000:  303:        vector<double> l2_output = l2.feed_forward(s1_output);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 10000
+branch  4 taken 10000 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 10000
+call    7 never executed
+    10000:  304:        vector<double> s2_output = s2.feed_forward(l2_output);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+        -:  305:
+        -:  306:        //Prediction is the index of the maximum value in the output
+    10000:  307:        int prediction = 0;
+        -:  308:        
+   110000:  309:        for(size_t j = 0; j < s2_output.size(); j++){
+branch  0 taken 100000
+branch  1 taken 10000 (fallthrough)
+   100000:  310:            if(s2_output[j] > s2_output[prediction]){
+branch  0 taken 20363 (fallthrough)
+branch  1 taken 79637
+    20363:  311:                prediction = j;
+        -:  312:            }
+        -:  313:        }
+        -:  314:
+    10000:  315:        predictions.push_back(prediction);
+call    0 returned 10000
+branch  1 taken 10000 (fallthrough)
+branch  2 taken 0 (throw)
+    10000:  316:    }
+call    0 returned 10000
+call    1 returned 10000
+call    2 returned 10000
+call    3 returned 10000
+call    4 returned 10000
+call    5 never executed
+call    6 never executed
+call    7 never executed
+call    8 never executed
+call    9 never executed
+        -:  317:
+        1:  318:    double acc = accuracy(predictions, test_labels);
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 1
+call    7 returned 1
+call    8 never executed
+        1:  319:    cout << "Test accuracy: " << acc * 100  << endl;
+call    0 returned 1
+branch  1 taken 1 (fallthrough)
+branch  2 taken 0 (throw)
+call    3 returned 1
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0 (throw)
+call    6 returned 1
+branch  7 taken 1 (fallthrough)
+branch  8 taken 0 (throw)
+        -:  320:
+        -:  321:    return 0;
+        1:  322:}
+call    0 returned 1
+call    1 returned 1
+call    2 returned 1
+call    3 returned 1
+call    4 returned 1
+call    5 returned 1
+call    6 returned 1
+call    7 returned 1
+call    8 returned 1
+call    9 never executed
+call   10 never executed
+call   11 never executed
+call   12 never executed
+call   13 never executed
+call   14 never executed
+call   15 never executed
+call   16 never executed
+call   17 never executed
+        -:  323:
