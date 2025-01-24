@@ -224,7 +224,7 @@ int main(void){
     Sigmoid s2 = Sigmoid();
 
 
-    for(int epoch = 0; epoch < 15; epoch++){
+    for(int epoch = 0; epoch < 5; epoch++){
         double learning_rate = 0.1;
         double mean_loss = 0.0;
 
