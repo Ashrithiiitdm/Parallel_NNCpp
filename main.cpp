@@ -183,7 +183,7 @@ bool load_data(vector<vector<double>> *train_images, vector<int> *train_labels, 
     return true;
 }
 
-double accuracy(vector<int> predictions, vector<int>labels){
+double accuracy(vector<int> &predictions, vector<int> &labels){
 
     int correct = 0;
     for(size_t i = 0; i < predictions.size(); i++){

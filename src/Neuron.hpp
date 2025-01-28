@@ -50,7 +50,7 @@ class Neuron {
             this->bgrad = 0.0;
         }
 
-        double feed_forward(std::vector<double> inputs) {
+        double feed_forward(std::vector<double> &inputs) {
             double sum = this->bias;
             int n = inputs.size();
 
@@ -61,7 +61,7 @@ class Neuron {
             return sum;
         }
 
-        void backpropagation(std::vector<double> last_input, double grad) {
+        void backpropagation(std::vector<double> &last_input, double grad) {
             this->bgrad += grad;
 
             int n = wgrad.size();

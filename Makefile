@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Werror -pedantic -O3 -fno-inline -fprofile-arcs -ftest-coverage
+CXXFLAGS = -std=c++11 -Wall -Werror -pedantic -O3 -fno-inline -pg
 TARGET = nn
 
 # Match .cpp files recursively in src and helpers directories

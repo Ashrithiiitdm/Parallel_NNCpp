@@ -30,7 +30,7 @@ class Layer{
             }
         }
 
-        std:: vector<double> feed_forward(std:: vector<double> inputs){
+        std:: vector<double> feed_forward(std:: vector<double> &inputs){
 
             this->last_input = inputs;
             int n = this->neurons.size();
@@ -44,7 +44,7 @@ class Layer{
 
         }
 
-        void backward(std:: vector<double> grad){
+        void backward(std:: vector<double> &grad){
             int n = this->neurons.size();
 
             for(int i = 0; i < n; i++){

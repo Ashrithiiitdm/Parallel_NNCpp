@@ -31,7 +31,7 @@ class Sigmoid{
             return outputs;
         }
 
-        void backward(std:: vector<double> chain_grad){
+        void backward(std:: vector<double> &chain_grad){
             this->grad = std:: vector<double>(this->last_input.size());
 
             for(size_t i = 0; i < this->last_input.size(); i++){

@@ -16,7 +16,7 @@ class MSE{
 
         }
 
-        double feed_forward(std:: vector<double> inputs, std:: vector<double> targets){
+        double feed_forward(std:: vector<double> &inputs, std:: vector<double> &targets){
             
             this->last_input = inputs;
             this->last_target = targets;
