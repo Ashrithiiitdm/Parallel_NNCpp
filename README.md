@@ -22,3 +22,8 @@ Before you begin, ensure you have the following installed:
     ```bash
     make
     ```
+3. Or compile using the required flags:
+    ```bash
+    gcc -o main main.c -lm
+    ./main
+    ```
