@@ -1,0 +1,565 @@
+        -:    0:Source:main.c
+        -:    0:Graph:main.gcno
+        -:    0:Data:main.gcda
+        -:    0:Runs:1
+        -:    1:#include <stdio.h>
+        -:    2:#include <stdlib.h>
+        -:    3:#include <math.h>
+        -:    4:#include <stdbool.h>
+        -:    5:#include <time.h>
+        -:    6:
+        -:    7:// Function to generate random numbers between 0 and 1
+    79510:    8:double get_random(){
+    79510:    9:    return (rand() / (double)RAND_MAX) * 2 - 1;
+        -:   10:}
+        -:   11:
+        -:   12:// Define the Neuron struct
+        -:   13:typedef struct{
+        -:   14:    double *weights;
+        -:   15:    double *wgrad;
+        -:   16:    double bias;
+        -:   17:    double bgrad;
+        -:   18:    int input_size;
+        -:   19:}Neuron;
+        -:   20:
+        -:   21:// Function to initialize a Neuron
+      110:   22:void init_neuron(Neuron *n, int input_size){
+        -:   23:
+      110:   24:    n->input_size = input_size;
+      110:   25:    n->weights = (double *)calloc(input_size, sizeof(double));
+      110:   26:    n->wgrad = (double *)calloc(input_size, sizeof(double));
+      110:   27:    n->bias = 0.01 * get_random();
+      110:   28:    n->bgrad = 0.0;
+        -:   29:
+    79510:   30:    for(int i = 0; i < input_size; i++){
+    79400:   31:        n->weights[i] = get_random();
+        -:   32:    }
+      110:   33:}
+        -:   34:
+        -:   35:// Free memory
+    #####:   36:void free_neuron(Neuron *n){
+    #####:   37:    free(n->weights);
+    #####:   38:    free(n->wgrad);
+    #####:   39:}
+        -:   40:
+        -:   41:// Function to reset gradients of the Neuron
+ 66000000:   42:void zero_grad(Neuron *n){
+        -:   43:
+47706000000:   44:    for(int i = 0; i < n->input_size; i++){
+47640000000:   45:        n->wgrad[i] = 0.0;
+        -:   46:    }
+ 66000000:   47:    n->bgrad = 0.0;
+ 66000000:   48:}
+        -:   49:
+        -:   50:// Function to calculate feed-forward output
+ 67100000:   51:double feed_forward(Neuron *n, double *inputs){
+        -:   52:
+ 67100000:   53:    double sum = n->bias;
+48501100000:   54:    for(int i = 0; i < n->input_size; i++){
+48434000000:   55:        sum += inputs[i] * n->weights[i];
+        -:   56:    }
+ 67100000:   57:    return sum;
+        -:   58:}
+        -:   59:
+        -:   60:// Function to update gradients during backpropagation
+ 66000000:   61:void backpropagation(Neuron *n, double *last_input, double grad){
+        -:   62:
+ 66000000:   63:    n->bgrad += grad;
+47706000000:   64:    for(int i = 0; i < n->input_size; i++){
+47640000000:   65:        n->wgrad[i] += grad * last_input[i];
+        -:   66:    }
+ 66000000:   67:}
+        -:   68:
+        -:   69:// Function to update weights and bias
+ 66000000:   70:void descend(Neuron *n, double learning_rate){
+        -:   71:
+ 66000000:   72:    n->bias -= learning_rate * n->bgrad;
+47706000000:   73:    for(int i = 0; i < n->input_size; i++){
+47640000000:   74:        n->weights[i] -= learning_rate * n->wgrad[i];
+        -:   75:    }
+ 66000000:   76:}
+        -:   77:
+        -:   78:// Define the Layer struct
+        -:   79:typedef struct{
+        -:   80:    Neuron *neurons;    // Array of Neurons
+        -:   81:    double *last_input; // Array for storing the last input
+        -:   82:    int input_size;     // Number of inputs to the layer
+        -:   83:    int output_size;    // Number of neurons in the layer
+        -:   84:}Layer;
+        -:   85:
+        -:   86:// Function to initialize a Layer
+        2:   87:void init_layer(Layer *l, int input_size, int output_size){
+        -:   88:
+        2:   89:    l->input_size = input_size;
+        2:   90:    l->output_size = output_size;
+        -:   91:
+        2:   92:    l->neurons = (Neuron *)malloc(output_size * sizeof(Neuron));   // Allocate memory for neurons
+        2:   93:    l->last_input = (double *)malloc(input_size * sizeof(double)); // Allocate memory for last input
+        -:   94:
+        -:   95:    // Initialize each neuron in the layer
+      112:   96:    for(int i = 0; i < output_size; i++){
+      110:   97:        init_neuron(&l->neurons[i], input_size); 
+        -:   98:    }
+        2:   99:}
+        -:  100:
+        -:  101:// free memory
+    #####:  102:void free_layer(Layer *l){
+        -:  103:
+    #####:  104:    free(l->neurons);    
+    #####:  105:    free(l->last_input); 
+    #####:  106:}
+        -:  107:
+        -:  108:// Function to reset gradients of all neurons in the layer
+  1200000:  109:void zero_grad_layer(Layer *l){
+        -:  110:
+ 67200000:  111:    for(int i = 0; i < l->output_size; i++){
+ 66000000:  112:        zero_grad(&l->neurons[i]);
+        -:  113:    }
+  1200000:  114:}
+        -:  115:
+        -:  116:// Function to calculate feed-forward output for the entire layer
+  1220000:  117:double *feed_forward_layer(Layer *l, double *inputs)
+        -:  118:{
+  1220000:  119:    l->last_input = inputs;                                              // Store the last input
+  1220000:  120:    double *outputs = (double *)malloc(l->output_size * sizeof(double)); // Allocate memory for outputs
+        -:  121:
+        -:  122:    // Calculate the output for each neuron
+ 68320000:  123:    for (int i = 0; i < l->output_size; i++)
+        -:  124:    {
+ 67100000:  125:        outputs[i] = feed_forward(&l->neurons[i], inputs); // Call the feed_forward function from Neuron.h
+        -:  126:    }
+        -:  127:
+  1220000:  128:    return outputs;
+        -:  129:}
+        -:  130:
+        -:  131:// Function to perform backpropagation on the layer
+  1200000:  132:void backward(Layer *l, double *grad)
+        -:  133:{
+        -:  134:
+ 67200000:  135:    for (int i = 0; i < l->output_size; i++)
+        -:  136:    {
+ 66000000:  137:        backpropagation(&l->neurons[i], l->last_input, grad[i]); // Call backpropagation from Neuron.h
+        -:  138:    }
+  1200000:  139:}
+        -:  140:
+        -:  141:// Function to perform gradient descent on all neurons in the layer
+  1200000:  142:void descend_layer(Layer *l, double learning_rate)
+        -:  143:{
+        -:  144:
+ 67200000:  145:    for (int i = 0; i < l->output_size; i++)
+        -:  146:    {
+ 66000000:  147:        descend(&l->neurons[i], learning_rate); // Call descend function from Neuron.h
+        -:  148:    }
+  1200000:  149:}
+        -:  150:
+        -:  151:// Define the MSE structure
+        -:  152:typedef struct
+        -:  153:{
+        -:  154:    double *last_input;  // Array to store last input
+        -:  155:    double *last_target; // Array to store last target
+        -:  156:    double *grad;        // Array to store gradient
+        -:  157:    int size;            // Size of the input and target arrays
+        -:  158:} MSE;
+        -:  159:
+        -:  160:// Function to initialize an MSE object
+    #####:  161:void init_mse(MSE *mse)
+        -:  162:{
+    #####:  163:    mse->last_input = NULL;
+    #####:  164:    mse->last_target = NULL;
+    #####:  165:    mse->grad = NULL;
+    #####:  166:    mse->size = 0;
+    #####:  167:}
+        -:  168:
+        -:  169:// Function to free memory for an MSE object
+    #####:  170:void free_mse(MSE *mse)
+        -:  171:{
+    #####:  172:    free(mse->last_input);
+    #####:  173:    free(mse->last_target);
+    #####:  174:    free(mse->grad);
+    #####:  175:}
+        -:  176:
+        -:  177:// Function to calculate the MSE loss
+   600000:  178:double feed_forward_mse(MSE *mse, double *inputs, double *targets, int size)
+        -:  179:{
+   600000:  180:    mse->last_input = (double *)malloc(size * sizeof(double));
+   600000:  181:    mse->last_target = (double *)malloc(size * sizeof(double));
+   600000:  182:    mse->size = size;
+        -:  183:
+        -:  184:    // Copy inputs and targets to last_input and last_target
+  6600000:  185:    for (int i = 0; i < size; i++)
+        -:  186:    {
+  6000000:  187:        mse->last_input[i] = inputs[i];
+  6000000:  188:        mse->last_target[i] = targets[i];
+        -:  189:    }
+        -:  190:
+        -:  191:    // Compute the MSE
+   600000:  192:    double sum = 0;
+  6600000:  193:    for (int i = 0; i < size; i++)
+        -:  194:    {
+  6000000:  195:        double s = mse->last_input[i] - mse->last_target[i];
+  6000000:  196:        sum += s * s;
+        -:  197:    }
+        -:  198:
+   600000:  199:    return sum / size;
+        -:  200:}
+        -:  201:
+        -:  202:// Function to calculate the gradient
+   600000:  203:void backward_mse(MSE *mse, double grad)
+        -:  204:{
+   600000:  205:    mse->grad = (double *)malloc(mse->size * sizeof(double));
+        -:  206:
+  6600000:  207:    for (int i = 0; i < mse->size; i++)
+        -:  208:    {
+  6000000:  209:        mse->grad[i] = 2 * (mse->last_input[i] - mse->last_target[i]) / mse->size;
+  6000000:  210:        mse->grad[i] *= grad;
+        -:  211:    }
+   600000:  212:}
+        -:  213:
+        -:  214:// Define the Sigmoid structure
+        -:  215:typedef struct
+        -:  216:{
+        -:  217:    double *last_input;  // Array to store last input
+        -:  218:    double *grad;        // Array to store gradient
+        -:  219:    double *last_output; // Array to store last output
+        -:  220:    int size;            // Size of the input/output arrays
+        -:  221:} Sigmoid;
+        -:  222:
+        -:  223:// Function to initialize a Sigmoid object
+        2:  224:void init_sigmoid(Sigmoid *s)
+        -:  225:{
+        2:  226:    s->last_input = NULL;
+        2:  227:    s->grad = NULL;
+        2:  228:    s->last_output = NULL;
+        2:  229:    s->size = 0;
+        2:  230:}
+        -:  231:
+        -:  232:// Function to free memory for a Sigmoid object
+    #####:  233:void free_sigmoid(Sigmoid *s)
+        -:  234:{
+    #####:  235:    free(s->last_input);
+    #####:  236:    free(s->grad);
+    #####:  237:    free(s->last_output);
+    #####:  238:}
+        -:  239:
+        -:  240:// Function to calculate feed-forward output for Sigmoid
+  1220000:  241:double *feed_forward_sigmoid(Sigmoid *s, double *inputs, int size)
+        -:  242:{
+  1220000:  243:    s->last_input = (double *)malloc(size * sizeof(double));
+  1220000:  244:    s->last_output = (double *)malloc(size * sizeof(double));
+  1220000:  245:    s->size = size;
+        -:  246:
+        -:  247:    // Copy inputs to last_input
+ 68320000:  248:    for (int i = 0; i < size; i++)
+        -:  249:    {
+ 67100000:  250:        s->last_input[i] = inputs[i];
+        -:  251:    }
+        -:  252:
+        -:  253:    // Compute the Sigmoid activation
+  1220000:  254:    double *outputs = s->last_output;
+ 68320000:  255:    for (int i = 0; i < size; i++)
+        -:  256:    {
+ 67100000:  257:        outputs[i] = 1 / (1 + exp(-inputs[i]));
+        -:  258:    }
+        -:  259:
+  1220000:  260:    return outputs;
+        -:  261:}
+        -:  262:
+        -:  263:// Function for backward propagation (using chain gradients)
+   600000:  264:void backward_chain(Sigmoid *s, double *chain_grad, int size)
+        -:  265:{
+   600000:  266:    s->grad = (double *)malloc(size * sizeof(double));
+        -:  267:
+  6600000:  268:    for (int i = 0; i < size; i++)
+        -:  269:    {
+  6000000:  270:        s->grad[i] = s->last_output[i] * (1 - s->last_output[i]) * chain_grad[i];
+        -:  271:    }
+   600000:  272:}
+        -:  273:
+        -:  274:// Function for backward propagation using the previous layer's gradients
+   600000:  275:void backward_layer(Sigmoid *s, Layer *prev_layer)
+        -:  276:{
+   600000:  277:    s->grad = (double *)malloc(s->size * sizeof(double));
+        -:  278:
+ 60600000:  279:    for (int i = 0; i < s->size; i++)
+        -:  280:    {
+ 60000000:  281:        double sum = 0;
+        -:  282:
+660000000:  283:        for (int j = 0; j < prev_layer->output_size; j++)
+        -:  284:        {
+600000000:  285:            sum += prev_layer->neurons[j].weights[i] * prev_layer->neurons[j].wgrad[i];
+        -:  286:        }
+        -:  287:
+ 60000000:  288:        s->grad[i] = s->last_output[i] * (1 - s->last_output[i]) * sum;
+        -:  289:    }
+   600000:  290:}
+        -:  291:
+       12:  292:void reverse_bytes(char *bytes, int size)
+        -:  293:{
+        -:  294:
+       36:  295:    for (int i = 0; i < size / 2; i++)
+        -:  296:    {
+       24:  297:        char temp = bytes[i];
+       24:  298:        bytes[i] = bytes[size - i - 1];
+       24:  299:        bytes[size - i - 1] = temp;
+        -:  300:    }
+       12:  301:}
+        -:  302:
+        1:  303:bool load_data(double ***train_images, int **train_labels, double ***test_images, int **test_labels, int *train_size, int *test_size)
+        -:  304:{
+        -:  305:
+        -:  306:    // Load training labels
+        1:  307:    FILE *file_labels = fopen("dataset/train-labels.idx1-ubyte", "rb");
+        1:  308:    if (!file_labels)
+        -:  309:    {
+    #####:  310:        return false;
+        -:  311:    }
+        -:  312:
+        -:  313:    int magic_number, no_of_items;
+        1:  314:    fread(&magic_number, sizeof(magic_number), 1, file_labels);
+        1:  315:    reverse_bytes((char *)&magic_number, sizeof(magic_number));
+        1:  316:    fread(&no_of_items, sizeof(no_of_items), 1, file_labels);
+        1:  317:    reverse_bytes((char *)&no_of_items, sizeof(no_of_items));
+        -:  318:
+        1:  319:    *train_labels = (int *)malloc(no_of_items * sizeof(int));
+    60001:  320:    for (int i = 0; i < no_of_items; i++)
+        -:  321:    {
+        -:  322:        char label;
+    60000:  323:        fread(&label, sizeof(label), 1, file_labels);
+    60000:  324:        (*train_labels)[i] = (int)label;
+        -:  325:    }
+        1:  326:    fclose(file_labels);
+        -:  327:
+        -:  328:    // Load training images
+        1:  329:    FILE *images = fopen("dataset/train-images.idx3-ubyte", "rb");
+        1:  330:    if (!images)
+        -:  331:    {
+    #####:  332:        return false;
+        -:  333:    }
+        -:  334:
+        -:  335:    int magic_number_images, no_of_images, no_of_rows, no_of_columns;
+        1:  336:    fread(&magic_number_images, sizeof(magic_number_images), 1, images);
+        1:  337:    reverse_bytes((char *)&magic_number_images, sizeof(magic_number_images));
+        1:  338:    fread(&no_of_images, sizeof(no_of_images), 1, images);
+        1:  339:    reverse_bytes((char *)&no_of_images, sizeof(no_of_images));
+        1:  340:    fread(&no_of_rows, sizeof(no_of_rows), 1, images);
+        1:  341:    reverse_bytes((char *)&no_of_rows, sizeof(no_of_rows));
+        1:  342:    fread(&no_of_columns, sizeof(no_of_columns), 1, images);
+        1:  343:    reverse_bytes((char *)&no_of_columns, sizeof(no_of_columns));
+        -:  344:
+        1:  345:    *train_images = (double **)malloc(no_of_images * sizeof(double *));
+    60001:  346:    for (int i = 0; i < no_of_images; i++)
+        -:  347:    {
+        -:  348:        char image[784];
+    60000:  349:        fread(image, sizeof(image), 1, images);
+    60000:  350:        (*train_images)[i] = (double *)malloc(784 * sizeof(double));
+ 47100000:  351:        for (int j = 0; j < 784; j++)
+        -:  352:        {
+ 47040000:  353:            (*train_images)[i][j] = (double)((unsigned char)image[j]) / 255.0;
+        -:  354:        }
+        -:  355:    }
+        1:  356:    fclose(images);
+        1:  357:    *train_size = no_of_images;
+        -:  358:
+        -:  359:    // Load test labels
+        1:  360:    FILE *test_labels_file = fopen("dataset/t10k-labels.idx1-ubyte", "rb");
+        1:  361:    if (!test_labels_file)
+        -:  362:    {
+    #####:  363:        return false;
+        -:  364:    }
+        -:  365:
+        -:  366:    int test_magic_number, test_no_of_items;
+        1:  367:    fread(&test_magic_number, sizeof(test_magic_number), 1, test_labels_file);
+        1:  368:    reverse_bytes((char *)&test_magic_number, sizeof(test_magic_number));
+        1:  369:    fread(&test_no_of_items, sizeof(test_no_of_items), 1, test_labels_file);
+        1:  370:    reverse_bytes((char *)&test_no_of_items, sizeof(test_no_of_items));
+        -:  371:
+        1:  372:    *test_labels = (int *)malloc(test_no_of_items * sizeof(int));
+    10001:  373:    for (int i = 0; i < test_no_of_items; i++)
+        -:  374:    {
+        -:  375:        char label;
+    10000:  376:        fread(&label, sizeof(label), 1, test_labels_file);
+    10000:  377:        (*test_labels)[i] = (int)label;
+        -:  378:    }
+        1:  379:    fclose(test_labels_file);
+        -:  380:
+        -:  381:    // Load test images
+        1:  382:    FILE *test_images_file = fopen("dataset/t10k-images.idx3-ubyte", "rb");
+        1:  383:    if (!test_images_file)
+        -:  384:    {
+    #####:  385:        return false;
+        -:  386:    }
+        -:  387:
+        -:  388:    int test_magic_number_images, test_no_of_images, test_no_of_rows, test_no_of_columns;
+        1:  389:    fread(&test_magic_number_images, sizeof(test_magic_number_images), 1, test_images_file);
+        1:  390:    reverse_bytes((char *)&test_magic_number_images, sizeof(test_magic_number_images));
+        1:  391:    fread(&test_no_of_images, sizeof(test_no_of_images), 1, test_images_file);
+        1:  392:    reverse_bytes((char *)&test_no_of_images, sizeof(test_no_of_images));
+        1:  393:    fread(&test_no_of_rows, sizeof(test_no_of_rows), 1, test_images_file);
+        1:  394:    reverse_bytes((char *)&test_no_of_rows, sizeof(test_no_of_rows));
+        1:  395:    fread(&test_no_of_columns, sizeof(test_no_of_columns), 1, test_images_file);
+        1:  396:    reverse_bytes((char *)&test_no_of_columns, sizeof(test_no_of_columns));
+        -:  397:
+        1:  398:    *test_images = (double **)malloc(test_no_of_images * sizeof(double *));
+    10001:  399:    for (int i = 0; i < test_no_of_images; i++)
+        -:  400:    {
+        -:  401:        char image[784];
+    10000:  402:        fread(image, sizeof(image), 1, test_images_file);
+    10000:  403:        (*test_images)[i] = (double *)malloc(784 * sizeof(double));
+        -:  404:
+  7850000:  405:        for (int j = 0; j < 784; j++)
+        -:  406:        {
+  7840000:  407:            (*test_images)[i][j] = (double)((unsigned char)image[j]) / 255.0;
+        -:  408:        }
+        -:  409:    }
+        1:  410:    fclose(test_images_file);
+        1:  411:    *test_size = test_no_of_images;
+        -:  412:
+        1:  413:    return true;
+        -:  414:}
+        -:  415:
+       11:  416:double accuracy(int *predictions, int *labels, int size)
+        -:  417:{
+        -:  418:
+       11:  419:    int correct = 0;
+   610011:  420:    for (int i = 0; i < size; i++)
+        -:  421:    {
+   610000:  422:        if (predictions[i] == labels[i])
+        -:  423:        {
+   541373:  424:            correct++;
+        -:  425:        }
+        -:  426:    }
+       11:  427:    return (double)correct / (double)size;
+        -:  428:}
+        -:  429:
+        1:  430:int main(void)
+        -:  431:{
+        1:  432:    srand(time(0));
+        -:  433:
+        -:  434:    double **train_images;
+        -:  435:    int *train_labels;
+        -:  436:    int train_size;
+        -:  437:
+        -:  438:    double **test_images;
+        -:  439:    int *test_labels;
+        -:  440:    int test_size;
+        -:  441:
+        1:  442:    bool flag = load_data(&train_images, &train_labels, &test_images, &test_labels, &train_size, &test_size);
+        -:  443:
+        1:  444:    if (!flag)
+        -:  445:    {
+    #####:  446:        printf("Error loading data\n");
+    #####:  447:        return 1;
+        -:  448:    }
+        -:  449:
+        1:  450:    printf("Data loaded successfully\n");
+        1:  451:    printf("Training images: %d\n", train_size);
+        1:  452:    printf("Training labels: %d\n", train_size); // Same size as train_images
+        1:  453:    printf("Test images: %d\n", test_size);
+        1:  454:    printf("Test labels: %d\n", test_size);
+        -:  455:
+        -:  456:    Layer l1, l2;
+        1:  457:    init_layer(&l1, 784, 100);
+        1:  458:    init_layer(&l2, 100, 10);
+        -:  459:    Sigmoid s1, s2;
+        1:  460:    init_sigmoid(&s1);
+        1:  461:    init_sigmoid(&s2);
+        -:  462:
+       11:  463:    for (int epoch = 0; epoch < 10; epoch++)
+        -:  464:    {
+        -:  465:
+       10:  466:        double learning_rate = 0.1;
+       10:  467:        double mean_loss = 0.0;
+        -:  468:
+       10:  469:        int *predictions = (int *)malloc(train_size * sizeof(int));
+        -:  470:
+   600010:  471:        for (int i = 0; i < train_size; i++)
+        -:  472:        {
+        -:  473:
+   600000:  474:            int idx = i;
+   600000:  475:            double *image = train_images[idx];
+   600000:  476:            int label = train_labels[idx];
+        -:  477:
+   600000:  478:            double *l1_output = feed_forward_layer(&l1, image);
+   600000:  479:            double *s1_output = feed_forward_sigmoid(&s1, l1_output, 100);
+   600000:  480:            double *l2_output = feed_forward_layer(&l2, s1_output);
+   600000:  481:            double *s2_output = feed_forward_sigmoid(&s2, l2_output, 10);
+        -:  482:
+   600000:  483:            double target[10] = {0.0};
+   600000:  484:            target[label] = 1.0;
+        -:  485:
+   600000:  486:            int prediction = 0;
+  6600000:  487:            for (int j = 0; j < 10; j++)
+        -:  488:            {
+        -:  489:
+  6000000:  490:                if (s2_output[j] > s2_output[prediction])
+        -:  491:                {
+  1241032:  492:                    prediction = j;
+        -:  493:                }
+        -:  494:            }
+        -:  495:
+   600000:  496:            predictions[i] = prediction;
+        -:  497:
+        -:  498:            MSE loss;
+   600000:  499:            double loss_value = feed_forward_mse(&loss, s2_output, target, 10);
+        -:  500:
+   600000:  501:            mean_loss += loss_value;
+   600000:  502:            if (i % 500 == 0)
+        -:  503:            {
+     1200:  504:                printf("Epoch: %d | Mean loss: %.4f\r", epoch + 1, mean_loss / (i + 1));
+        -:  505:            }
+        -:  506:
+        -:  507:            // Backpropagation
+        -:  508:            // Backpropagation
+   600000:  509:            zero_grad_layer(&l1);
+   600000:  510:            zero_grad_layer(&l2);
+        -:  511:
+   600000:  512:            backward_mse(&loss, 1.0);
+        -:  513:
+   600000:  514:            backward_chain(&s2, loss.grad, 10);
+   600000:  515:            backward(&l2, s2.grad);
+   600000:  516:            backward_layer(&s1, &l2);
+   600000:  517:            backward(&l1, s1.grad);
+        -:  518:
+   600000:  519:            descend_layer(&l1, learning_rate);
+   600000:  520:            descend_layer(&l2, learning_rate);
+        -:  521:        }
+        -:  522:
+       10:  523:        double acc = accuracy(predictions, train_labels, train_size);
+        -:  524:
+       10:  525:        printf("Epoch: %d | Loss: %.4f | Training accuracy: %.2f%%\n", epoch + 1, mean_loss / train_size, acc * 100);
+        -:  526:
+       10:  527:        free(predictions);
+        -:  528:    }
+        -:  529:
+        -:  530:    // Test the model
+        1:  531:    int *test_predictions = (int *)malloc(test_size * sizeof(int));
+        -:  532:
+    10001:  533:    for (int i = 0; i < test_size; i++)
+        -:  534:    {
+        -:  535:
+    10000:  536:        double *image = test_images[i];
+        -:  537:
+    10000:  538:        double *l1_output = feed_forward_layer(&l1, image);
+    10000:  539:        double *s1_output = feed_forward_sigmoid(&s1, l1_output, 100);
+    10000:  540:        double *l2_output = feed_forward_layer(&l2, s1_output);
+    10000:  541:        double *s2_output = feed_forward_sigmoid(&s2, l2_output, 10);
+        -:  542:
+    10000:  543:        int prediction = 0;
+   110000:  544:        for (int j = 0; j < 10; j++)
+        -:  545:        {
+        -:  546:
+   100000:  547:            if (s2_output[j] > s2_output[prediction])
+        -:  548:            {
+    20678:  549:                prediction = j;
+        -:  550:            }
+        -:  551:        }
+        -:  552:
+    10000:  553:        test_predictions[i] = prediction;
+        -:  554:    }
+        -:  555:
+        1:  556:    double test_acc = accuracy(test_predictions, test_labels, test_size);
+        1:  557:    printf("Test accuracy: %.2f%%\n", test_acc * 100);
+        -:  558:
+        1:  559:    free(test_predictions);
+        1:  560:    return 0;
+        -:  561:}

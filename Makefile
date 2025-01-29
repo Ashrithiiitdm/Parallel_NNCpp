@@ -1,23 +1,21 @@
-CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Werror -pedantic -O3 -fno-inline -pg
-TARGET = nn
+#Compiler
+CC=gcc
 
-# Match .cpp files recursively in src and helpers directories
-SRCS = main.cpp $(wildcard src/*.cpp) $(wildcard helpers/*.cpp)
+#Compiler flags
+CFLAGS=-pg -fprofile-arcs -ftest-coverage -lm
 
-# Define object files based on the .cpp files
-OBJS = $(SRCS:.cpp=.o)
+#Compile and run the program
 
-# Default target
-$(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS)
+all:
+	$(CC) main.c -o main $(CFLAGS)
+	./main
 
-# Rule for compiling .cpp to .o
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+#For flat profile
+	gprof main gmon.out > gprof_profile.txt
 
-# Clean object files and the target
+#For gcov results
+	gcov main.c
+
 clean:
-	rm -f $(TARGET) $(OBJS)
-	rm -f $(wildcard *.gcda) $(wildcard *.gcno)
-	rm -f gmon.out
+	rm -f main gmon.out main.o
+	rm -f *.gcda *.gcno
