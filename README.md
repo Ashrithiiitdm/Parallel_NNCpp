@@ -8,7 +8,7 @@ Before you begin, ensure you have the following installed:
 
 - **C Compiler** (e.g., GCC)
 - **OpenMP** (Make sure your compiler supports OpenMP)
-- **MNIST Dataset** (Either download it from [here](https://www.kaggle.com/datasets/hojjatk/mnist-dataset) or use a local copy)
+- **MNIST Dataset** (Download it from [here](https://www.kaggle.com/datasets/hojjatk/mnist-dataset).)
 - **Make** (Optional, if you want to use a makefile for compilation)
 
 ### Installation
