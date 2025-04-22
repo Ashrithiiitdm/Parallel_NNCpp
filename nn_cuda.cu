@@ -1,652 +1,589 @@
-#include<stdio.h>
-#include<stdlib.h>
-#include<math.h>
-#include<stdbool.h>
-#include<time.h>
-#include<cuda.h>
+%%writefile nn.cu
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
 #include <cuda_runtime.h>
+#include <curand.h>
+#include <curand_kernel.h>
 
-// 1. Fix random number generation for device
-__device__ double get_random_device(unsigned long long seed) {
-    // Simple LCG PRNG for device
-    seed = (seed * 6364136223846793005ULL + 1442695040888963407ULL);
-    return (double)(seed >> 32) / (double)0xFFFFFFFFULL * 2.0 - 1.0;
+// MNIST dataset dimensions
+#define MNIST_IMAGE_SIZE 784
+#define MNIST_LABEL_SIZE 10
+#define TRAIN_SIZE 60000
+#define TEST_SIZE 10000
+
+// Network architecture
+#define HIDDEN_SIZE 128
+#define LEARNING_RATE 0.01f
+#define BATCH_SIZE 128
+#define EPOCHS 10
+
+// CUDA error checking macro
+#define cudaCheckError() { \
+    cudaError_t e=cudaGetLastError(); \
+    if(e!=cudaSuccess) { \
+        printf("CUDA error %s:%d: %s\n", __FILE__, __LINE__, cudaGetErrorString(e)); \
+        exit(EXIT_FAILURE); \
+    } \
 }
 
-__host__ __device__ double get_random(unsigned long long seed) {
-#ifdef __CUDA_ARCH__
-    // Device version
-    return get_random_device(seed);
-#else
-    // Host version
-    return (rand() / (double)RAND_MAX) * 2 - 1;
-#endif
+// Structure for the neural network
+typedef struct {
+    float *h_input_weights;
+    float *h_hidden_weights;
+    float *h_hidden_bias;
+    float *h_output_bias;
+    
+    // Device memory
+    float *d_input_weights;
+    float *d_hidden_weights;
+    float *d_hidden_bias;
+    float *d_output_bias;
+    
+    // Temporary storage for forward and backward pass
+    float *d_hidden_output;
+    float *d_output;
+    float *d_output_error;
+    float *d_hidden_error;
+} NeuralNetwork;
+
+// Function prototypes
+void readMNISTData(float **train_images, unsigned char **train_labels, float **test_images, unsigned char **test_labels);
+void initializeNetwork(NeuralNetwork *net);
+void freeNetwork(NeuralNetwork *net);
+void trainNetwork(NeuralNetwork *net, float *train_images, unsigned char *train_labels);
+float testNetwork(NeuralNetwork *net, float *test_images, unsigned char *test_labels);
+
+// CUDA kernels
+__global__ void initializeWeights(float *weights, int size, unsigned long seed);
+__global__ void forwardPass(float *images, float *input_weights, float *hidden_bias, float *hidden_output, float *hidden_weights, float *output_bias, float *output, int batch_size);
+__global__ void calculateOutputError(float *output, unsigned char *labels, float *output_error, int batch_size);
+__global__ void backpropagateError(float *output_error, float *hidden_weights, float *hidden_output, float *hidden_error, int batch_size);
+__global__ void updateParameters(float *images, float *hidden_output, float *output_error, float *hidden_error, float *input_weights, float *hidden_weights, float *hidden_bias, float *output_bias, float learning_rate, int batch_size);
+__global__ void predictDigits(float *output, int *predictions, int batch_size);
+
+// ReLU activation function
+__device__ float relu(float x) {
+    return fmaxf(0.0f, x);
 }
 
-__device__ double atomicAddDouble(double* address, double val) {
-    unsigned long long int* address_as_ull = (unsigned long long int*)address;
-    unsigned long long int old = *address_as_ull, assumed;
-    do {
-        assumed = old;
-        old = atomicCAS(address_as_ull, assumed,
-                        __double_as_longlong(val + 
-                        __longlong_as_double(assumed)));
-    } while (assumed != old);
-    return __longlong_as_double(old);
+// Derivative of ReLU
+__device__ float relu_derivative(float x) {
+    return x > 0.0f ? 1.0f : 0.0f;
 }
 
-typedef struct{
-    double *weights;
-    double *wgrad;
-    double bias;
-    double bgrad;
-    int input_size;
-} Neuron;
-
-__global__ void init_neuron_kernel(Neuron *n, int input_size, unsigned long long seed){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < input_size){
-        n->weights[i] = get_random_device(seed + 1);
+// Softmax function for output layer
+__device__ void softmax(float *input, float *output, int size) {
+    float max_val = input[0];
+    for (int i = 1; i < size; i++) {
+        max_val = fmaxf(max_val, input[i]);
+    }
+    
+    float sum = 0.0f;
+    for (int i = 0; i < size; i++) {
+        output[i] = expf(input[i] - max_val);
+        sum += output[i];
+    }
+    
+    for (int i = 0; i < size; i++) {
+        output[i] /= sum;
     }
 }
 
-void init_neuron(Neuron *n, int input_size){
-
-    n->input_size = input_size;
-    cudaMallocManaged(&n->weights, input_size * sizeof(double));
-    cudaMallocManaged(&n->wgrad, input_size * sizeof(double));
-    n->bias = 0.01 * get_random(time(NULL));
-    n->bgrad = 0.0;
-    unsigned long long seed = time(NULL);
-    int blockSize = 256;
-    int numBlocks = (input_size + blockSize - 1) / blockSize;
-    init_neuron_kernel<<<numBlocks, blockSize>>>(n, input_size, seed);
-    cudaDeviceSynchronize();
-}
-
-void free_neuron(Neuron *n){
-
-    cudaFree(n->weights);
-    cudaFree(n->wgrad);
-}
-
-__global__ void zero_grad_kernel(Neuron *n){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < n->input_size){
-        n->wgrad[i] = 0.0;
+// Read actual MNIST data from IDX files
+void readMNISTData(float **train_images, unsigned char **train_labels, float **test_images, unsigned char **test_labels) {
+    
+    FILE *f_train_images = fopen("/kaggle/input/mydata2/train-images.idx3-ubyte", "rb");
+    FILE *f_train_labels = fopen("/kaggle/input/mydata2/train-labels.idx1-ubyte", "rb");
+    FILE *f_test_images = fopen("/kaggle/input/mydata2/t10k-images.idx3-ubyte", "rb");
+    FILE *f_test_labels = fopen("/kaggle/input/mydata2/t10k-labels.idx1-ubyte", "rb");
+    
+    if(!f_train_images || !f_train_labels || !f_test_images || !f_test_labels) {
+        printf("Error: Could not open one or more MNIST files.\n");
+        exit(EXIT_FAILURE);
     }
-
-    if (i == 0){
-        n->bgrad = 0.0;
+    
+    // Helper to reverse bytes (from big-endian to little-endian)
+    void reverse_bytes(char *bytes, int size);
+    
+    int magic = 0, num = 0, rows = 0, cols = 0;
+    
+    // Read training images header
+    fread(&magic, sizeof(magic), 1, f_train_images);
+    reverse_bytes((char*)&magic, sizeof(magic));
+    fread(&num, sizeof(num), 1, f_train_images);
+    reverse_bytes((char*)&num, sizeof(num));
+    fread(&rows, sizeof(rows), 1, f_train_images);
+    reverse_bytes((char*)&rows, sizeof(rows));
+    fread(&cols, sizeof(cols), 1, f_train_images);
+    reverse_bytes((char*)&cols, sizeof(cols));
+    
+    if (rows * cols != MNIST_IMAGE_SIZE) {
+        printf("Error: Unexpected image size.\n");
+        exit(EXIT_FAILURE);
     }
-}
-
-void zero_grad(Neuron *n){
-
-    int blockSize = 256;
-    int numBlocks = (n->input_size + blockSize - 1) / blockSize;
-    zero_grad_kernel<<<numBlocks, blockSize>>>(n);
-    cudaDeviceSynchronize();
-}
-
-__global__ void feed_forward_kernel(Neuron *n, double *inputs, double *sum){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < n->input_size){
-        atomicAddDouble(sum, inputs[i] * n->weights[i]);
-    }
-}
-
-__device__ double feed_forward(Neuron *n, double *inputs){
-
-    double sum = n->bias;
-    double *d_sum;
-    cudaMalloc(&d_sum, sizeof(double));
-    cudaMemcpy(d_sum, &sum, sizeof(double), cudaMemcpyHostToDevice);
-
-    int blockSize = 256;
-    int numBlocks = (n->input_size + blockSize - 1) / blockSize;
-    feed_forward_kernel<<<numBlocks, blockSize>>>(n, inputs, d_sum);
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(&sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost);
-    cudaFree(d_sum);
-    return sum;
-}
-
-__global__ void backpropagation_kernel(Neuron *n, double *last_input, double grad){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < n->input_size){
-        atomicAddDouble(&n->wgrad[i], grad * last_input[i]);
-    }
-    if (i == 0){
-        atomicAddDouble(&n->bgrad, grad);
-    }
-}
-
-void backpropagation(Neuron *n, double *last_input, double grad){
-
-    int blockSize = 256;
-    int numBlocks = (n->input_size + blockSize - 1) / blockSize;
-    backpropagation_kernel<<<numBlocks, blockSize>>>(n, last_input, grad);
-    cudaDeviceSynchronize();
-}
-
-__global__ void descend_kernel(Neuron *n, double learning_rate){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < n->input_size){
-        n->weights[i] -= learning_rate * n->wgrad[i];
-    }
-    if (i == 0){
-        n->bias -= learning_rate * n->bgrad;
-    }
-}
-
-void descend(Neuron *n, double learning_rate){
-
-    int blockSize = 256;
-    int numBlocks = (n->input_size + blockSize - 1) / blockSize;
-    descend_kernel<<<numBlocks, blockSize>>>(n, learning_rate);
-    cudaDeviceSynchronize();
-}
-
-typedef struct{
-
-    Neuron *neurons;
-    double *last_input;
-    int input_size;
-    int output_size;
-} Layer;
-
-void init_layer(Layer *l, int input_size, int output_size){
-
-    l->input_size = input_size;
-    l->output_size = output_size;
-    cudaMallocManaged(&l->neurons, output_size * sizeof(Neuron));
-    cudaMallocManaged(&l->last_input, input_size * sizeof(double));
-
-    for (int i = 0; i < output_size; i++){
-        init_neuron(&l->neurons[i], input_size);
-    }
-}
-
-void free_layer(Layer *l){
-
-    for (int i = 0; i < l->output_size; i++){
-        free_neuron(&l->neurons[i]);
-    }
-    cudaFree(l->neurons);
-    cudaFree(l->last_input);
-}
-
-void zero_grad_layer(Layer *l){
-
-    for (int i = 0; i < l->output_size; i++){
-        zero_grad(&l->neurons[i]);
-    }
-}
-
-__global__ void feed_forward_layer_kernel(Layer *l, double *inputs, double *outputs){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < l->output_size){
-        outputs[i] = feed_forward(&l->neurons[i], inputs);
-    }
-}
-
-double *feed_forward_layer(Layer *l, double *inputs){
-
-    l->last_input = inputs;
-    double *outputs;
-    cudaMallocManaged(&outputs, l->output_size * sizeof(double));
-
-    int blockSize = 256;
-    int numBlocks = (l->output_size + blockSize - 1) / blockSize;
-    feed_forward_layer_kernel<<<numBlocks, blockSize>>>(l, inputs, outputs);
-    cudaDeviceSynchronize();
-
-    return outputs;
-}
-
-void backward(Layer *l, double *grad){
-
-    for (int i = 0; i < l->output_size; i++){
-        backpropagation(&l->neurons[i], l->last_input, grad[i]);
-    }
-}
-
-void descend_layer(Layer *l, double learning_rate){
-
-    for (int i = 0; i < l->output_size; i++){
-        descend(&l->neurons[i], learning_rate);
-    }
-}
-
-typedef struct{
-
-    double *last_input;
-    double *last_target;
-    double *grad;
-    int size;
-} MSE;
-
-void init_mse(MSE *mse){
-
-    mse->last_input = NULL;
-    mse->last_target = NULL;
-    mse->grad = NULL;
-    mse->size = 0;
-}
-
-void free_mse(MSE *mse){
-
-    cudaFree(mse->last_input);
-    cudaFree(mse->last_target);
-    cudaFree(mse->grad);
-}
-
-__global__ void feed_forward_mse_kernel(MSE *mse, double *d_sum){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < mse->size){
-        double s = mse->last_input[i] - mse->last_target[i];
-        atomicAddDouble(d_sum, s * s);
-    }
-}
-
-double feed_forward_mse(MSE *mse, double *inputs, double *targets, int size){
-
-    cudaMallocManaged(&mse->last_input, size * sizeof(double));
-    cudaMallocManaged(&mse->last_target, size * sizeof(double));
-    mse->size = size;
-
-    cudaMemcpy(mse->last_input, inputs, size * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(mse->last_target, targets, size * sizeof(double), cudaMemcpyHostToDevice);
-
-    double sum = 0;
-    double *d_sum;
-    cudaMalloc(&d_sum, sizeof(double));
-    cudaMemcpy(d_sum, &sum, sizeof(double), cudaMemcpyHostToDevice);
-
-    int blockSize = 256;
-    int numBlocks = (size + blockSize - 1) / blockSize;
-    feed_forward_mse_kernel<<<numBlocks, blockSize>>>(mse, d_sum);
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(&sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost);
-    cudaFree(d_sum);
-
-    return sum / size;
-}
-
-
-
-__global__ void backward_mse_kernel(MSE *mse, double grad){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < mse->size){
-        mse->grad[i] = 2 * (mse->last_input[i] - mse->last_target[i]) / mse->size;
-        mse->grad[i] *= grad;
-    }
-}
-
-void backward_mse(MSE *mse, double grad){
-
-    cudaMallocManaged(&mse->grad, mse->size * sizeof(double));
-
-    int blockSize = 256;
-    int numBlocks = (mse->size + blockSize - 1) / blockSize;
-    backward_mse_kernel<<<numBlocks, blockSize>>>(mse, grad);
-    cudaDeviceSynchronize();
-}
-
-typedef struct{
-    double *last_input;
-    double *grad;
-    double *last_output;
-    int size;
-} Sigmoid;
-
-void init_sigmoid(Sigmoid *s){
-
-    s->last_input = NULL;
-    s->grad = NULL;
-    s->last_output = NULL;
-    s->size = 0;
-}
-
-void free_sigmoid(Sigmoid *s){
-
-    cudaFree(s->last_input);
-    cudaFree(s->grad);
-    cudaFree(s->last_output);
-}
-
-__global__ void feed_forward_sigmoid_kernel(Sigmoid *s, double *outputs){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < s->size){
-        outputs[i] = 1 / (1 + exp(-s->last_input[i]));
-    }
-}
-
-double *feed_forward_sigmoid(Sigmoid *s, double *inputs, int size){
-
-    cudaMallocManaged(&s->last_input, size * sizeof(double));
-    cudaMallocManaged(&s->last_output, size * sizeof(double));
-    s->size = size;
-
-    cudaMemcpy(s->last_input, inputs, size * sizeof(double), cudaMemcpyHostToDevice);
-
-    double *outputs = s->last_output;
-
-    int blockSize = 256;
-    int numBlocks = (size + blockSize - 1) / blockSize;
-    feed_forward_sigmoid_kernel<<<numBlocks, blockSize>>>(s, outputs);
-    cudaDeviceSynchronize();
-
-    return outputs;
-}
-
-
-
-__global__ void backward_chain_kernel(Sigmoid *s, double *chain_grad){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < s->size){
-        s->grad[i] = s->last_output[i] * (1 - s->last_output[i]) * chain_grad[i];
-    }
-}
-
-void backward_chain(Sigmoid *s, double *chain_grad, int size){
-
-    cudaMallocManaged(&s->grad, size * sizeof(double));
-
-    int blockSize = 256;
-    int numBlocks = (size + blockSize - 1) / blockSize;
-    backward_chain_kernel<<<numBlocks, blockSize>>>(s, chain_grad);
-    cudaDeviceSynchronize();
-}
-
-__global__ void backward_layer_kernel(Sigmoid *s, Layer *prev_layer){
-
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < s->size){
-
-        double sum = 0;
-        for (int j = 0; j < prev_layer->output_size; j++){
-            sum += prev_layer->neurons[j].weights[i] * prev_layer->neurons[j].wgrad[i];
+    
+    *train_images = (float*)malloc(num * MNIST_IMAGE_SIZE * sizeof(float));
+    unsigned char *img_buffer = (unsigned char*)malloc(MNIST_IMAGE_SIZE * sizeof(unsigned char));
+    
+    for (int i = 0; i < num; i++) {
+        fread(img_buffer, sizeof(unsigned char), MNIST_IMAGE_SIZE, f_train_images);
+        for (int j = 0; j < MNIST_IMAGE_SIZE; j++) {
+            (*train_images)[i * MNIST_IMAGE_SIZE + j] = (float)img_buffer[j] / 255.0f;
         }
-        s->grad[i] = s->last_output[i] * (1 - s->last_output[i]) * sum;
     }
+    
+    free(img_buffer);
+    fclose(f_train_images);
+    
+    // Read training labels header
+    fread(&magic, sizeof(magic), 1, f_train_labels);
+    reverse_bytes((char*)&magic, sizeof(magic));
+    fread(&num, sizeof(num), 1, f_train_labels);
+    reverse_bytes((char*)&num, sizeof(num));
+    
+    *train_labels = (unsigned char*)malloc(num * sizeof(unsigned char));
+    fread(*train_labels, sizeof(unsigned char), num, f_train_labels);
+    fclose(f_train_labels);
+    
+    // Read test images header
+    fread(&magic, sizeof(magic), 1, f_test_images);
+    reverse_bytes((char*)&magic, sizeof(magic));
+    fread(&num, sizeof(num), 1, f_test_images);
+    reverse_bytes((char*)&num, sizeof(num));
+    fread(&rows, sizeof(rows), 1, f_test_images);
+    reverse_bytes((char*)&rows, sizeof(rows));
+    fread(&cols, sizeof(cols), 1, f_test_images);
+    reverse_bytes((char*)&cols, sizeof(cols));
+    
+    if (rows * cols != MNIST_IMAGE_SIZE) {
+        printf("Error: Unexpected test image size.\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    *test_images = (float*)malloc(num * MNIST_IMAGE_SIZE * sizeof(float));
+    img_buffer = (unsigned char*)malloc(MNIST_IMAGE_SIZE * sizeof(unsigned char));
+    
+    for (int i = 0; i < num; i++) {
+        fread(img_buffer, sizeof(unsigned char), MNIST_IMAGE_SIZE, f_test_images);
+        for (int j = 0; j < MNIST_IMAGE_SIZE; j++) {
+            (*test_images)[i * MNIST_IMAGE_SIZE + j] = (float)img_buffer[j] / 255.0f;
+        }
+    }
+    
+    free(img_buffer);
+    fclose(f_test_images);
+    
+    // Read test labels header
+    fread(&magic, sizeof(magic), 1, f_test_labels);
+    reverse_bytes((char*)&magic, sizeof(magic));
+    fread(&num, sizeof(num), 1, f_test_labels);
+    reverse_bytes((char*)&num, sizeof(num));
+    
+    *test_labels = (unsigned char*)malloc(num * sizeof(unsigned char));
+    fread(*test_labels, sizeof(unsigned char), num, f_test_labels);
+    fclose(f_test_labels);
+    
+    printf("MNIST data loaded: %d training images, %d test images.\n", TRAIN_SIZE, TEST_SIZE);
 }
 
-void backward_layer(Sigmoid *s, Layer *prev_layer){
-
-    cudaMallocManaged(&s->grad, s->size * sizeof(double));
-
-    int blockSize = 256;
-    int numBlocks = (s->size + blockSize - 1) / blockSize;
-    backward_layer_kernel<<<numBlocks, blockSize>>>(s, prev_layer);
-    cudaDeviceSynchronize();
-}
-
-void reverse_bytes(char *bytes, int size){
-
-    for (int i = 0; i < size / 2; i++){
-        char temp = bytes[i];
+// Utility to reverse bytes from big-endian to little-endian
+void reverse_bytes(char *bytes, int size) {
+    for (int i = 0; i < size/2; i++) {
+        char tmp = bytes[i];
         bytes[i] = bytes[size - i - 1];
-        bytes[size - i - 1] = temp;
+        bytes[size - i - 1] = tmp;
     }
 }
 
-bool load_data(double ***train_images, int **train_labels, double ***test_images, int **test_labels, int *train_size, int *test_size)
-{
-    FILE *file_labels = fopen("dataset/train-labels.idx1-ubyte", "rb");
-    if (!file_labels)
-    {
-        return false;
-    }
+// Initialize the neural network with random weights (using Xavier initialization)
+void initializeNetwork(NeuralNetwork *net) {
 
-    int magic_number, no_of_items;
-    fread(&magic_number, sizeof(magic_number), 1, file_labels);
-    reverse_bytes((char *)&magic_number, sizeof(magic_number));
-    fread(&no_of_items, sizeof(no_of_items), 1, file_labels);
-    reverse_bytes((char *)&no_of_items, sizeof(no_of_items));
-
-    *train_labels = (int *)malloc(no_of_items * sizeof(int));
-    for (int i = 0; i < no_of_items; i++)
-    {
-        char label;
-        fread(&label, sizeof(label), 1, file_labels);
-        (*train_labels)[i] = (int)label;
-    }
-    fclose(file_labels);
-
-    FILE *images = fopen("dataset/train-images.idx3-ubyte", "rb");
-    if (!images)
-    {
-        return false;
-    }
-
-    int magic_number_images, no_of_images, no_of_rows, no_of_columns;
-    fread(&magic_number_images, sizeof(magic_number_images), 1, images);
-    reverse_bytes((char *)&magic_number_images, sizeof(magic_number_images));
-    fread(&no_of_images, sizeof(no_of_images), 1, images);
-    reverse_bytes((char *)&no_of_images, sizeof(no_of_images));
-    fread(&no_of_rows, sizeof(no_of_rows), 1, images);
-    reverse_bytes((char *)&no_of_rows, sizeof(no_of_rows));
-    fread(&no_of_columns, sizeof(no_of_columns), 1, images);
-    reverse_bytes((char *)&no_of_columns, sizeof(no_of_columns));
-
-    *train_images = (double **)malloc(no_of_images * sizeof(double *));
-    for (int i = 0; i < no_of_images; i++)
-    {
-        char image[784];
-        fread(image, sizeof(image), 1, images);
-        (*train_images)[i] = (double *)malloc(784 * sizeof(double));
-        for (int j = 0; j < 784; j++)
-        {
-            (*train_images)[i][j] = (double)((unsigned char)image[j]) / 255.0;
-        }
-    }
-    fclose(images);
-    *train_size = no_of_images;
-
-    FILE *test_labels_file = fopen("dataset/t10k-labels.idx1-ubyte", "rb");
-    if (!test_labels_file)
-    {
-        return false;
-    }
-
-    int test_magic_number, test_no_of_items;
-    fread(&test_magic_number, sizeof(test_magic_number), 1, test_labels_file);
-    reverse_bytes((char *)&test_magic_number, sizeof(test_magic_number));
-    fread(&test_no_of_items, sizeof(test_no_of_items), 1, test_labels_file);
-    reverse_bytes((char *)&test_no_of_items, sizeof(test_no_of_items));
-
-    *test_labels = (int *)malloc(test_no_of_items * sizeof(int));
-    for (int i = 0; i < test_no_of_items; i++)
-    {
-        char label;
-        fread(&label, sizeof(label), 1, test_labels_file);
-        (*test_labels)[i] = (int)label;
-    }
-    fclose(test_labels_file);
-
-    FILE *test_images_file = fopen("dataset/t10k-images.idx3-ubyte", "rb");
-    if (!test_images_file)
-    {
-        return false;
-    }
-
-    int test_magic_number_images, test_no_of_images, test_no_of_rows, test_no_of_columns;
-    fread(&test_magic_number_images, sizeof(test_magic_number_images), 1, test_images_file);
-    reverse_bytes((char *)&test_magic_number_images, sizeof(test_magic_number_images));
-    fread(&test_no_of_images, sizeof(test_no_of_images), 1, test_images_file);
-    reverse_bytes((char *)&test_no_of_images, sizeof(test_no_of_images));
-    fread(&test_no_of_rows, sizeof(test_no_of_rows), 1, test_images_file);
-    reverse_bytes((char *)&test_no_of_rows, sizeof(test_no_of_rows));
-    fread(&test_no_of_columns, sizeof(test_no_of_columns), 1, test_images_file);
-    reverse_bytes((char *)&test_no_of_columns, sizeof(test_no_of_columns));
-
-    *test_images = (double **)malloc(test_no_of_images * sizeof(double *));
-    for (int i = 0; i < test_no_of_images; i++)
-    {
-        char image[784];
-        fread(image, sizeof(image), 1, test_images_file);
-        (*test_images)[i] = (double *)malloc(784 * sizeof(double));
-        for (int j = 0; j < 784; j++)
-        {
-            (*test_images)[i][j] = (double)((unsigned char)image[j]) / 255.0;
-        }
-    }
-    fclose(test_images_file);
-    *test_size = test_no_of_images;
-
-    return true;
-}
-
-double accuracy(int *predictions, int *labels, int size)
-{
-    int correct = 0;
-    for (int i = 0; i < size; i++)
-    {
-        if (predictions[i] == labels[i])
-        {
-            correct++;
-        }
-    }
-    return (double)correct / (double)size;
-}
-
-
-// Main function with training loop (complete implementation)
-int main() {
-    srand(time(0));
+    // Allocate host memory for weights if needed
+    net->h_input_weights = (float*)malloc(MNIST_IMAGE_SIZE * HIDDEN_SIZE * sizeof(float));
+    net->h_hidden_weights = (float*)malloc(HIDDEN_SIZE * MNIST_LABEL_SIZE * sizeof(float));
+    net->h_hidden_bias = (float*)malloc(HIDDEN_SIZE * sizeof(float));
+    net->h_output_bias = (float*)malloc(MNIST_LABEL_SIZE * sizeof(float));
     
-    // Load MNIST data
-    double **train_images, **test_images;
-    int *train_labels, *test_labels;
-    int train_size, test_size;
+    // Allocate device memory
+    cudaMalloc((void**)&net->d_input_weights, MNIST_IMAGE_SIZE * HIDDEN_SIZE * sizeof(float));
+    cudaMalloc((void**)&net->d_hidden_weights, HIDDEN_SIZE * MNIST_LABEL_SIZE * sizeof(float));
+    cudaMalloc((void**)&net->d_hidden_bias, HIDDEN_SIZE * sizeof(float));
+    cudaMalloc((void**)&net->d_output_bias, MNIST_LABEL_SIZE * sizeof(float));
     
-    if(!load_data(&train_images, &train_labels, &test_images, &test_labels, &train_size, &test_size)) {
-        printf("Failed to load data!\n");
-        return 1;
+    // Allocate temporary storage
+    cudaMalloc((void**)&net->d_hidden_output, BATCH_SIZE * HIDDEN_SIZE * sizeof(float));
+    cudaMalloc((void**)&net->d_output, BATCH_SIZE * MNIST_LABEL_SIZE * sizeof(float));
+    cudaMalloc((void**)&net->d_output_error, BATCH_SIZE * MNIST_LABEL_SIZE * sizeof(float));
+    cudaMalloc((void**)&net->d_hidden_error, BATCH_SIZE * HIDDEN_SIZE * sizeof(float));
+    cudaCheckError();
+    
+    // Initialize weights and biases on device with random values using a kernel
+    dim3 blockSize(256);
+    dim3 gridSize((MNIST_IMAGE_SIZE * HIDDEN_SIZE + blockSize.x - 1) / blockSize.x);
+    initializeWeights<<<gridSize, blockSize>>> (net->d_input_weights, MNIST_IMAGE_SIZE * HIDDEN_SIZE, time(NULL));
+    
+    gridSize.x = (HIDDEN_SIZE * MNIST_LABEL_SIZE + blockSize.x - 1) / blockSize.x;
+    initializeWeights<<<gridSize, blockSize>>> (net->d_hidden_weights, HIDDEN_SIZE * MNIST_LABEL_SIZE, time(NULL) + 1);
+    
+    gridSize.x = (HIDDEN_SIZE + blockSize.x - 1) / blockSize.x;
+    initializeWeights<<<gridSize, blockSize>>> (net->d_hidden_bias, HIDDEN_SIZE, time(NULL) + 2);
+    
+    gridSize.x = (MNIST_LABEL_SIZE + blockSize.x - 1) / blockSize.x;
+    initializeWeights<<<gridSize, blockSize>>> (net->d_output_bias, MNIST_LABEL_SIZE, time(NULL) + 3);
+    cudaCheckError();
+}
+
+// CUDA kernel to initialize weights using curand and Xavier initialization
+__global__ void initializeWeights(float *weights, int size, unsigned long seed) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size) {
+        curandState state;
+        curand_init(seed + idx, 0, 0, &state);
+        float scale = 0.05f;
+        weights[idx] = curand_normal(&state) * scale;
     }
-    printf("Loaded %d training samples and %d test samples\n", train_size, test_size);
+}
 
-    // Initialize network
-    Layer l1, l2;
-    init_layer(&l1, 784, 128);
-    init_layer(&l2, 128, 10);
-    Sigmoid s1, s2;
-    init_sigmoid(&s1);
-    init_sigmoid(&s2);
-    MSE loss;
-    init_mse(&loss);
+// Free network memory
+void freeNetwork(NeuralNetwork *net) {
+    free(net->h_input_weights);
+    free(net->h_hidden_weights);
+    free(net->h_hidden_bias);
+    free(net->h_output_bias);
+    
+    cudaFree(net->d_input_weights);
+    cudaFree(net->d_hidden_weights);
+    cudaFree(net->d_hidden_bias);
+    cudaFree(net->d_output_bias);
+    
+    cudaFree(net->d_hidden_output);
+    cudaFree(net->d_output);
+    cudaFree(net->d_output_error);
+    cudaFree(net->d_hidden_error);
+}
 
-    // Training parameters
-    const int epochs = 10;
-    const double learning_rate = 0.1;
-    const int batch_size = 100;
-
-    // Training loop
-    clock_t start = clock();
-    for(int epoch = 0; epoch < epochs; epoch++) {
-        double epoch_loss = 0.0;
-        int *predictions = (int*)malloc(train_size * sizeof(int));
-
-        for(int i = 0; i < train_size; i++) {
-            // Forward pass
-            double *l1_out = feed_forward_layer(&l1, train_images[i]);
-            double *s1_out = feed_forward_sigmoid(&s1, l1_out, 128);
-            double *l2_out = feed_forward_layer(&l2, s1_out);
-            double *s2_out = feed_forward_sigmoid(&s2, l2_out, 10);
-
-            // Get prediction
-            int pred = 0;
-            for(int j = 0; j < 10; j++) {
-                if(s2_out[j] > s2_out[pred]) pred = j;
+// Training and testing functions (unchanged from your original code)
+void trainNetwork(NeuralNetwork *net, float *train_images, unsigned char *train_labels) {
+    float *d_train_images;
+    unsigned char *d_train_labels;
+    cudaMalloc((void**)&d_train_images, BATCH_SIZE * MNIST_IMAGE_SIZE * sizeof(float));
+    cudaMalloc((void**)&d_train_labels, BATCH_SIZE * sizeof(unsigned char));
+    
+    int *d_predictions;
+    cudaMalloc((void**)&d_predictions, BATCH_SIZE * sizeof(int));
+    
+    dim3 forwardBlockSize(32, 4);
+    dim3 forwardGridSize((HIDDEN_SIZE + forwardBlockSize.x - 1) / forwardBlockSize.x, (BATCH_SIZE + forwardBlockSize.y - 1) / forwardBlockSize.y);
+    
+    dim3 errorBlockSize(32, 4);
+    dim3 errorGridSize((MNIST_LABEL_SIZE + errorBlockSize.x - 1) / errorBlockSize.x, (BATCH_SIZE + errorBlockSize.y - 1) / errorBlockSize.y);
+    
+    dim3 backpropBlockSize(32, 4);
+    dim3 backpropGridSize((HIDDEN_SIZE + backpropBlockSize.x - 1) / backpropBlockSize.x, (BATCH_SIZE + backpropBlockSize.y - 1) / backpropBlockSize.y);
+    
+    dim3 updateBlockSize(32, 4);
+    dim3 updateGridSize1((MNIST_IMAGE_SIZE + updateBlockSize.x - 1) / updateBlockSize.x, (HIDDEN_SIZE + updateBlockSize.y - 1) / updateBlockSize.y);
+    dim3 updateGridSize2((HIDDEN_SIZE + updateBlockSize.x - 1) / updateBlockSize.x, (MNIST_LABEL_SIZE + updateBlockSize.y - 1) / updateBlockSize.y);
+    
+    for (int epoch = 0; epoch < EPOCHS; epoch++) {
+        printf("Epoch %d/%d\n", epoch + 1, EPOCHS);
+        
+        int *indices = (int*)malloc(TRAIN_SIZE * sizeof(int));
+        for (int i = 0; i < TRAIN_SIZE; i++) indices[i] = i;
+        
+        for (int i = 0; i < TRAIN_SIZE - 1; i++) {
+            int j = i + rand() % (TRAIN_SIZE - i);
+            int temp = indices[i];
+            indices[i] = indices[j];
+            indices[j] = temp;
+        }
+        
+        int num_batches = TRAIN_SIZE / BATCH_SIZE;
+        int correct = 0;
+        
+        for (int batch = 0; batch < num_batches; batch++) {
+            // Prepare batch data
+            for (int i = 0; i < BATCH_SIZE; i++) {
+                int idx = indices[batch * BATCH_SIZE + i];
+                memcpy(&train_images[i * MNIST_IMAGE_SIZE], &train_images[idx * MNIST_IMAGE_SIZE], MNIST_IMAGE_SIZE * sizeof(float));
+                train_labels[i] = train_labels[idx];
             }
-            predictions[i] = pred;
-
-            // Calculate loss
-            double target[10] = {0};
-            target[train_labels[i]] = 1.0;
-            double loss_val = feed_forward_mse(&loss, s2_out, target, 10);
-            epoch_loss += loss_val;
-
-            // Backpropagation
-            zero_grad_layer(&l1);
-            zero_grad_layer(&l2);
             
-            backward_mse(&loss, 1.0);
-            backward_chain(&s2, loss.grad, 10);
-            backward(&l2, s2.grad);
-            backward_layer(&s1, &l2);
-            backward(&l1, s1.grad);
-
-            // Update weights
-            descend_layer(&l1, learning_rate);
-            descend_layer(&l2, learning_rate);
-
-            if(i % 1000 == 0) {
-                printf("Epoch %d: Sample %d/%d - Loss: %.4f\r", 
-                      epoch+1, i+1, train_size, epoch_loss/(i+1));
+            cudaMemcpy(d_train_images, train_images, BATCH_SIZE * MNIST_IMAGE_SIZE * sizeof(float), cudaMemcpyHostToDevice);
+            cudaMemcpy(d_train_labels, train_labels, BATCH_SIZE * sizeof(unsigned char), cudaMemcpyHostToDevice);
+            
+            forwardPass<<<forwardGridSize, forwardBlockSize>>>(
+                d_train_images, net->d_input_weights, net->d_hidden_bias,
+                net->d_hidden_output, net->d_hidden_weights, net->d_output_bias,
+                net->d_output, BATCH_SIZE
+            );
+            cudaCheckError();
+            
+            calculateOutputError<<<errorGridSize, errorBlockSize>>>(
+                net->d_output, d_train_labels, net->d_output_error, BATCH_SIZE
+            );
+            cudaCheckError();
+            
+            backpropagateError<<<backpropGridSize, backpropBlockSize>>>(
+                net->d_output_error, net->d_hidden_weights, net->d_hidden_output,
+                net->d_hidden_error, BATCH_SIZE
+            );
+            cudaCheckError();
+            
+            updateParameters<<<updateGridSize1, updateBlockSize>>>(
+                d_train_images, net->d_hidden_output, net->d_output_error,
+                net->d_hidden_error, net->d_input_weights, net->d_hidden_weights,
+                net->d_hidden_bias, net->d_output_bias, LEARNING_RATE, BATCH_SIZE
+            );
+            cudaCheckError();
+            
+            predictDigits<<<(BATCH_SIZE + 255) / 256, 256>>>(
+                net->d_output, d_predictions, BATCH_SIZE
+            );
+            cudaCheckError();
+            
+            int *h_predictions = (int*)malloc(BATCH_SIZE * sizeof(int));
+            cudaMemcpy(h_predictions, d_predictions,
+                      BATCH_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
+            
+            for (int i = 0; i < BATCH_SIZE; i++) {
+                if (h_predictions[i] == train_labels[i]) {
+                    correct++;
+                }
+            }
+            
+            free(h_predictions);
+            
+            if ((batch + 1) % 50 == 0 || batch == num_batches - 1) {
+                printf(" Batch %d/%d - Accuracy: %.2f%%\r",
+                      batch + 1, num_batches,
+                      100.0f * correct / ((batch + 1) * BATCH_SIZE));
+                fflush(stdout);
             }
         }
-
-        // Calculate epoch metrics
-        double acc = accuracy(predictions, train_labels, train_size);
-        printf("Epoch %d complete - Loss: %.4f - Accuracy: %.2f%%\n",
-              epoch+1, epoch_loss/train_size, acc*100);
-        free(predictions);
+        
+        printf("\n");
+        free(indices);
     }
-    double train_time = (double)(clock() - start)/CLOCKS_PER_SEC;
-
-    // Testing
-    start = clock();
-    int *test_preds = (int*)malloc(test_size * sizeof(int));
-    for(int i = 0; i < test_size; i++) {
-        double *l1_out = feed_forward_layer(&l1, test_images[i]);
-        double *s1_out = feed_forward_sigmoid(&s1, l1_out, 128);
-        double *l2_out = feed_forward_layer(&l2, s1_out);
-        double *s2_out = feed_forward_sigmoid(&s2, l2_out, 10);
-
-        int pred = 0;
-        for(int j = 0; j < 10; j++) {
-            if(s2_out[j] > s2_out[pred]) pred = j;
-        }
-        test_preds[i] = pred;
-    }
-    double test_acc = accuracy(test_preds, test_labels, test_size);
-    double test_time = (double)(clock() - start)/CLOCKS_PER_SEC;
-
-    printf("\nFinal Results:\n");
-    printf("Training Time: %.2f seconds\n", train_time);
-    printf("Test Accuracy: %.2f%%\n", test_acc * 100);
-    printf("Inference Time: %.2f seconds\n", test_time);
-
-    // Cleanup
-    free_layer(&l1);
-    free_layer(&l2);
-    free_sigmoid(&s1);
-    free_sigmoid(&s2);
-    free_mse(&loss);
     
-    // Free data arrays
-    for(int i = 0; i < train_size; i++) free(train_images[i]);
-    for(int i = 0; i < test_size; i++) free(test_images[i]);
-    free(train_images);
-    free(test_images);
-    free(train_labels);
-    free(test_labels);
-    free(test_preds);
+    cudaMemcpy(net->h_input_weights, net->d_input_weights, MNIST_IMAGE_SIZE * HIDDEN_SIZE * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(net->h_hidden_weights, net->d_hidden_weights, HIDDEN_SIZE * MNIST_LABEL_SIZE * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(net->h_hidden_bias, net->d_hidden_bias, HIDDEN_SIZE * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(net->h_output_bias, net->d_output_bias, MNIST_LABEL_SIZE * sizeof(float), cudaMemcpyDeviceToHost);
+    
+    cudaFree(d_train_images);
+    cudaFree(d_train_labels);
+    cudaFree(d_predictions);
+}
 
+float testNetwork(NeuralNetwork *net, float *test_images, unsigned char *test_labels) {
+    float *d_test_images;
+    unsigned char *d_test_labels;
+    cudaMalloc((void**)&d_test_images, BATCH_SIZE * MNIST_IMAGE_SIZE * sizeof(float));
+    cudaMalloc((void**)&d_test_labels, BATCH_SIZE * sizeof(unsigned char));
+    
+    int *d_predictions;
+    cudaMalloc((void**)&d_predictions, BATCH_SIZE * sizeof(int));
+    
+    dim3 forwardBlockSize(32, 4);
+    dim3 forwardGridSize((HIDDEN_SIZE + forwardBlockSize.x - 1) / forwardBlockSize.x, (BATCH_SIZE + forwardBlockSize.y - 1) / forwardBlockSize.y);
+    
+    int num_batches = TEST_SIZE / BATCH_SIZE;
+    int correct = 0;
+    
+    for (int batch = 0; batch < num_batches; batch++) {
+        cudaMemcpy(d_test_images, &test_images[batch * BATCH_SIZE * MNIST_IMAGE_SIZE], BATCH_SIZE * MNIST_IMAGE_SIZE * sizeof(float), cudaMemcpyHostToDevice);
+        
+        cudaMemcpy(d_test_labels, &test_labels[batch * BATCH_SIZE], BATCH_SIZE * sizeof(unsigned char), cudaMemcpyHostToDevice);
+        
+        forwardPass<<<forwardGridSize, forwardBlockSize>>>(
+            d_test_images, net->d_input_weights, net->d_hidden_bias,
+            net->d_hidden_output, net->d_hidden_weights, net->d_output_bias,
+            net->d_output, BATCH_SIZE
+        );
+        cudaCheckError();
+        
+        predictDigits<<<(BATCH_SIZE + 255) / 256, 256>>>(
+            net->d_output, d_predictions, BATCH_SIZE
+        );
+        cudaCheckError();
+        
+        int *h_predictions = (int*)malloc(BATCH_SIZE * sizeof(int));
+        cudaMemcpy(h_predictions, d_predictions, BATCH_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
+        
+        for (int i = 0; i < BATCH_SIZE; i++) {
+            if (h_predictions[i] == test_labels[batch * BATCH_SIZE + i]) {
+                correct++;
+            }
+        }
+        
+        free(h_predictions);
+        
+        if ((batch + 1) % 10 == 0 || batch == num_batches - 1) {
+            printf(" Batch %d/%d - Accuracy: %.2f%%\r",
+                  batch + 1, num_batches,
+                  100.0f * correct / ((batch + 1) * BATCH_SIZE));
+            fflush(stdout);
+        }
+    }
+    
+    printf("\n");
+    cudaFree(d_test_images);
+    cudaFree(d_test_labels);
+    cudaFree(d_predictions);
+    
+    return (float)correct / (num_batches * BATCH_SIZE);
+}
+
+// CUDA kernel implementations
+__global__ void forwardPass(float *images, float *input_weights, float *hidden_bias, float *hidden_output, float *hidden_weights, float *output_bias, float *output, int batch_size) {
+    int hidden_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int batch_idx = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (hidden_idx < HIDDEN_SIZE && batch_idx < batch_size) {
+        float sum = hidden_bias[hidden_idx];
+        for (int i = 0; i < MNIST_IMAGE_SIZE; i++) {
+            sum += images[batch_idx * MNIST_IMAGE_SIZE + i] * input_weights[i * HIDDEN_SIZE + hidden_idx];
+        }
+        hidden_output[batch_idx * HIDDEN_SIZE + hidden_idx] = relu(sum);
+    }
+    
+    __syncthreads();
+    
+    if (hidden_idx < MNIST_LABEL_SIZE && batch_idx < batch_size) {
+        float sum = output_bias[hidden_idx];
+        for (int i = 0; i < HIDDEN_SIZE; i++) {
+            sum += hidden_output[batch_idx * HIDDEN_SIZE + i] * hidden_weights[i * MNIST_LABEL_SIZE + hidden_idx];
+        }
+        output[batch_idx * MNIST_LABEL_SIZE + hidden_idx] = sum;
+    }
+    
+    __syncthreads();
+    
+    if (hidden_idx == 0 && batch_idx < batch_size) {
+        softmax(&output[batch_idx * MNIST_LABEL_SIZE], &output[batch_idx * MNIST_LABEL_SIZE], MNIST_LABEL_SIZE);
+    }
+}
+
+__global__ void calculateOutputError(float *output, unsigned char *labels, float *output_error, int batch_size) {
+    int output_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int batch_idx = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (output_idx < MNIST_LABEL_SIZE && batch_idx < batch_size) {
+        float target = (labels[batch_idx] == output_idx) ? 1.0f : 0.0f;
+        output_error[batch_idx * MNIST_LABEL_SIZE + output_idx] = output[batch_idx * MNIST_LABEL_SIZE + output_idx] - target;
+    }
+}
+
+__global__ void backpropagateError(float *output_error, float *hidden_weights, float *hidden_output, float *hidden_error, int batch_size) {
+    int hidden_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int batch_idx = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (hidden_idx < HIDDEN_SIZE && batch_idx < batch_size) {
+        float error = 0.0f;
+        for (int i = 0; i < MNIST_LABEL_SIZE; i++) {
+            error += output_error[batch_idx * MNIST_LABEL_SIZE + i] * hidden_weights[hidden_idx * MNIST_LABEL_SIZE + i];
+        }
+        hidden_error[batch_idx * HIDDEN_SIZE + hidden_idx] = error * relu_derivative(hidden_output[batch_idx * HIDDEN_SIZE + hidden_idx]);
+    }
+}
+
+__global__ void updateParameters(float *images, float *hidden_output, float *output_error, float *hidden_error, float *input_weights, float *hidden_weights, float *hidden_bias, float *output_bias, float learning_rate, int batch_size) {
+    
+    int input_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int hidden_idx = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (input_idx < MNIST_IMAGE_SIZE && hidden_idx < HIDDEN_SIZE) {
+        float weight_gradient = 0.0f;
+        for (int b = 0; b < batch_size; b++) {
+            weight_gradient += images[b * MNIST_IMAGE_SIZE + input_idx] * hidden_error[b * HIDDEN_SIZE + hidden_idx];
+        }
+        input_weights[input_idx * HIDDEN_SIZE + hidden_idx] -= learning_rate * weight_gradient / batch_size;
+    }
+    
+    if (input_idx == 0 && hidden_idx < HIDDEN_SIZE) {
+        float bias_gradient = 0.0f;
+        for (int b = 0; b < batch_size; b++) {
+            bias_gradient += hidden_error[b * HIDDEN_SIZE + hidden_idx];
+        }
+        hidden_bias[hidden_idx] -= learning_rate * bias_gradient / batch_size;
+    }
+    
+    if (hidden_idx < HIDDEN_SIZE && input_idx < MNIST_LABEL_SIZE) {
+        float weight_gradient = 0.0f;
+        for (int b = 0; b < batch_size; b++) {
+            weight_gradient += hidden_output[b * HIDDEN_SIZE + hidden_idx] * output_error[b * MNIST_LABEL_SIZE + input_idx];
+        }
+        hidden_weights[hidden_idx * MNIST_LABEL_SIZE + input_idx] -= learning_rate * weight_gradient / batch_size;
+    }
+    
+    if (hidden_idx == 0 && input_idx < MNIST_LABEL_SIZE) {
+        float bias_gradient = 0.0f;
+        for (int b = 0; b < batch_size; b++) {
+            bias_gradient += output_error[b * MNIST_LABEL_SIZE + input_idx];
+        }
+        output_bias[input_idx] -= learning_rate * bias_gradient / batch_size;
+    }
+}
+
+__global__ void predictDigits(float *output, int *predictions, int batch_size) {
+    
+    int batch_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (batch_idx < batch_size) {
+        float max_prob = output[batch_idx * MNIST_LABEL_SIZE];
+        int max_idx = 0;
+        
+        for (int i = 1; i < MNIST_LABEL_SIZE; i++) {
+            float prob = output[batch_idx * MNIST_LABEL_SIZE + i];
+            if (prob > max_prob) {
+                max_prob = prob;
+                max_idx = i;
+            }
+        }
+        
+        predictions[batch_idx] = max_idx;
+    }
+}
+
+int main() {
+    
+    // Load MNIST data from files
+    float *train_images, *test_images;
+    unsigned char *train_labels, *test_labels;
+    
+    printf("Loading MNIST dataset...\n");
+    readMNISTData(&train_images, &train_labels, &test_images, &test_labels);
+    
+    // Initialize neural network
+    NeuralNetwork net;
+    printf("Initializing neural network...\n");
+    initializeNetwork(&net);
+    
+    // Train network
+    printf("Training neural network...\n");
+    clock_t train_start = clock();
+    trainNetwork(&net, train_images, train_labels);
+    clock_t train_end = clock();
+    printf("Training time: %lf seconds\n", (double)(train_end - train_start) / CLOCKS_PER_SEC);
+    
+    printf("Testing neural network...\n");
+    clock_t test_start = clock();
+    float acc = testNetwork(&net, test_images, test_labels);
+    clock_t test_end = clock();
+    printf("Testing time: %lf seconds\n", (double)(test_end - test_start) / CLOCKS_PER_SEC);
+    
+    printf("Final accuracy: %.2f%%\n", acc * 100.0f);
+    
+    // Clean up
+    freeNetwork(&net);
+    free(train_images);
+    free(train_labels);
+    free(test_images);
+    free(test_labels);
+    
     return 0;
 }

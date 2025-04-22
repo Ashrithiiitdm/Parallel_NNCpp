@@ -1,8 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-#include <stdbool.h>
-#include <time.h>
+#include<stdio.h>
+#include<stdlib.h>
+#include<math.h>
+#include<stdbool.h>
+#include<time.h>
 
 // Function to generate random numbers between 0 and 1
 double get_random(){
@@ -139,16 +139,16 @@ void backward(Layer *l, double *grad){
 void descend_layer(Layer *l, double learning_rate){
 
     for(int i = 0; i < l->output_size; i++){
-        descend(&l->neurons[i], learning_rate); // Call descend function from Neuron.h
+        descend(&l->neurons[i], learning_rate); 
     }
 }
 
 // Define the MSE structure
 typedef struct{
-    double *last_input;  // Array to store last input
-    double *last_target; // Array to store last target
-    double *grad;        // Array to store gradient
-    int size;            // Size of the input and target arrays
+    double *last_input;  
+    double *last_target; 
+    double *grad;        
+    int size;            
 }MSE;
 
 // Function to initialize an MSE object
